@@ -11,6 +11,7 @@ declare(strict_types=1);
  * Usage:
  *   php bin/install.php --target=/var/www/app [--no-example] [--web-user=www-data]
  *   php bin/install.php --target=/var/www/app --update [--migrate] [--web-user=www-data]
+ *   (--web-user names the web server group that gets access to storage/ and config/local.php)
  *   Optional: --ref=<branch|tag> --commit=<sha> (recorded in .frasm-version)
  *
  * Ownership rules:
@@ -248,32 +249,47 @@ function createLocalConfig(string $source, string $target): ?string
 }
 
 /**
- * @brief Gives the web server write access to storage/ and read access to local.php.
+ * @brief Gives the web server group write access to storage/ and read access to config/local.php.
+ *
+ * Changing the group works as root or when the installing user is a member of the web server group.
+ * Directories get the setgid bit so files created later (by the web server or CLI) inherit the group.
  *
  * @param string $target Project directory.
- * @param string $webUser Web server user (group with the same name is used).
- * @return void
+ * @param string $webGroup Web server group.
+ * @return list<string> Shell commands still required (empty when everything was applied).
  */
-function applyPermissions(string $target, string $webUser): void
+function applyPermissions(string $target, string $webGroup): array
 {
-    $isRoot = function_exists('posix_geteuid') && posix_geteuid() === 0;
-    $paths = [$target . '/storage', $target . '/storage/logs', $target . '/storage/cache'];
+    $paths = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($target . '/storage', FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    $paths[] = $target . '/storage';
+    foreach ($iterator as $item) {
+        $paths[] = $item->getPathname();
+    }
 
+    $ok = true;
     foreach ($paths as $path) {
-        chmod($path, 02775);
-        if ($isRoot) {
-            chown($path, $webUser);
-            chgrp($path, $webUser);
-        }
+        @chmod($path, is_dir($path) ? 02775 : 0664);
+        $ok = @chgrp($path, $webGroup) && $ok;
     }
 
-    if ($isRoot) {
-        chgrp($target . '/config/local.php', $webUser);
-        return;
+    $localConfig = $target . '/config/local.php';
+    if (is_file($localConfig)) {
+        $ok = @chgrp($localConfig, $webGroup) && $ok;
     }
 
-    out("  ! Not running as root: make storage/ writable and config/local.php readable for '{$webUser}':");
-    out("      sudo chown -R {$webUser}:{$webUser} {$target}/storage && sudo chgrp {$webUser} {$target}/config/local.php");
+    clearstatcache();
+    if ($ok) {
+        return [];
+    }
+
+    return [
+        "sudo chgrp -R {$webGroup} {$target}/storage {$localConfig}",
+        "sudo chmod -R g+rwX {$target}/storage",
+    ];
 }
 
 /**
@@ -384,7 +400,17 @@ function main(array $argv): void
     }
     touch("{$target}/storage/.gitkeep");
 
-    applyPermissions($target, $webUser);
+    $requiredCommands = applyPermissions($target, $webUser);
+    $permissionHint = static function () use ($requiredCommands, $webUser): void {
+        if ($requiredCommands === []) {
+            return;
+        }
+        out("  ⚠ REQUIRED: the web server ('{$webUser}') cannot read config/local.php or write storage/ yet. Run:");
+        foreach ($requiredCommands as $command) {
+            out("      {$command}");
+        }
+        out("    (Tip: `sudo usermod -aG {$webUser} " . (function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'USER') : 'USER') . "` lets future installs/updates do this without sudo.)");
+    };
 
     // 4. Version stamp
     file_put_contents("{$target}/.frasm-version", json_encode([
@@ -404,6 +430,7 @@ function main(array $argv): void
         }
 
         out('✔ Framework updated.');
+        $permissionHint();
         out('  Next: reload the web server (OPcache) and restart the queue worker if it runs as a service:');
         out('      sudo systemctl reload apache2; sudo systemctl restart frasm-queue');
         if (!isset($options['migrate'])) {
@@ -415,6 +442,7 @@ function main(array $argv): void
     out('✔ Frasm installed.');
     out('');
     out('Next steps:');
+    $permissionHint();
     out("  1. Set database credentials in {$target}/config/local.php");
     out("  2. php {$target}/bin/db.php migrate && php {$target}/bin/seed-admin.php");
     if ($adminPassword !== null) {
