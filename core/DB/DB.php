@@ -42,7 +42,7 @@ class DB
      * Resolves settings from parameter array or retrieves defaults from Core\Config\Config.
      * Enforces strict error reporting via mysqli_sql_exception.
      *
-     * @param array{host?: string, user?: string, password?: string, database?: string, port?: int, charset?: string}|null $config
+     * @param array{host?: string, user?: string, password?: string, database?: string, port?: int, charset?: string, sync_timezone?: bool}|null $config
      * @throws DatabaseException If connection establishment or charset assignment fails.
      */
     protected function __construct(?array $config = null)
@@ -61,6 +61,7 @@ class DB
                 'database' => $dbSettings['database'] ?? '',
                 'port'     => (int)($dbSettings['port'] ?? 3306),
                 'charset'  => $dbSettings['charset'] ?? 'utf8mb4',
+                'sync_timezone' => (bool)($dbSettings['sync_timezone'] ?? true),
             ];
         }
 
@@ -74,6 +75,11 @@ class DB
         try {
             $this->connection = new mysqli($host, $user, $password, $database, $port);
             $this->connection->set_charset($charset);
+
+            // Align SQL NOW()/CURRENT_TIMESTAMP with PHP's date() so both sides compare the same clock
+            if ((bool)($config['sync_timezone'] ?? true)) {
+                $this->connection->query("SET time_zone = '" . date('P') . "'");
+            }
         } catch (mysqli_sql_exception $e) {
             throw new DatabaseException(
                 "Database connection error: " . $e->getMessage(),
@@ -135,7 +141,9 @@ class DB
             throw new DatabaseException(
                 "Query execution failed: " . $e->getMessage() . " [SQL: {$query}]",
                 (int)$e->getCode(),
-                $e
+                $e,
+                $query,
+                $params
             );
         }
     }
@@ -209,10 +217,10 @@ class DB
         }
 
         $columns = array_keys($data);
-        $escapedColumns = implode(', ', array_map(fn(string $col): string => "`" . str_replace("`", "``", $col) . "`", $columns));
+        $escapedColumns = implode(', ', array_map(fn(string $col): string => $this->quoteIdentifier($col), $columns));
         $placeholders = implode(', ', array_fill(0, count($data), '?'));
 
-        $sql = "INSERT INTO `{$table}` ({$escapedColumns}) VALUES ({$placeholders})";
+        $sql = "INSERT INTO " . $this->quoteIdentifier($table) . " ({$escapedColumns}) VALUES ({$placeholders})";
         $this->query($sql, array_values($data));
 
         return $this->lastInsertId();
@@ -237,12 +245,12 @@ class DB
 
         $setParts = [];
         foreach (array_keys($data) as $column) {
-            $escapedColumn = "`" . str_replace("`", "``", $column) . "`";
+            $escapedColumn = $this->quoteIdentifier((string)$column);
             $setParts[] = "{$escapedColumn} = ?";
         }
         $setClause = implode(', ',$setParts);
 
-        $sql = "UPDATE `{$table}` SET {$setClause} WHERE {$where}";
+        $sql = "UPDATE " . $this->quoteIdentifier($table) . " SET {$setClause} WHERE {$where}";
         $params = array_merge(array_values($data),$whereParams);
 
         $this->query($sql,$params);
@@ -261,7 +269,7 @@ class DB
      */
     public function delete(string $table, string $where, array$params = []): int
     {
-        $sql = "DELETE FROM `{$table}` WHERE {$where}";
+        $sql = "DELETE FROM " . $this->quoteIdentifier($table) . " WHERE {$where}";
         $this->query($sql,$params);
 
         return $this->affectedRows();
@@ -331,6 +339,20 @@ class DB
         } catch (Throwable $e) {$this->rollback();
             throw $e;
         }
+    }
+
+    /**
+     * @brief Quotes a table or column identifier with backticks, escaping embedded backticks.
+     *
+     * @param string $identifier Identifier name (a 'schema.table' form is quoted per segment).
+     * @return string Quoted identifier.
+     */
+    public function quoteIdentifier(string $identifier): string
+    {
+        return implode('.', array_map(
+            fn(string $part): string => '`' . str_replace('`', '``', $part) . '`',
+            explode('.', $identifier)
+        ));
     }
 
     /**

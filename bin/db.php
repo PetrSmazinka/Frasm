@@ -7,31 +7,20 @@ declare(strict_types=1);
  * @brief General database migration and management console tool.
  */
 
-define('FRASM_ROOT_DIR', dirname(__DIR__));
-define('FRASM_CORE_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'core');
-define('FRASM_APP_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'app');
-define('FRASM_CONFIG_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'config');
-
-require_once FRASM_CORE_DIR . DIRECTORY_SEPARATOR . 'Autoload' . DIRECTORY_SEPARATOR . 'Autoloader.php';
-
-$autoloader = new \Core\Autoload\Autoloader();
-$autoloader->addNamespace('Core', FRASM_CORE_DIR);
-$autoloader->addNamespace('App', FRASM_APP_DIR);
-$autoloader->register();
-
-\Core\Config\Config::load(FRASM_CONFIG_DIR);
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 $action = $argv[1] ?? 'help';
 $seedAfter = in_array('--seed', $argv, true);
 
-$migrator = new \Core\DB\Migrator();
-
 try {
+    $migrator = new \Core\DB\Migrator();
+
     switch ($action) {
         case 'migrate':
         case 'up':
             echo "Running pending migrations...\n";
             $executed = $migrator->up();
+            echo "  ✔ Core schema applied (modules: " . implode(', ', \Core\DB\Migrator::enabledModules()) . ")\n";
             if (empty($executed)) {
                 echo "Nothing to migrate. Database is up to date.\n";
             } else {
@@ -64,6 +53,7 @@ try {
             echo "Wiping and re-running all migrations...\n";
             $migrator->wipe();
             $executed = $migrator->up();
+            echo "  ✔ Core schema applied (modules: " . implode(', ', \Core\DB\Migrator::enabledModules()) . ")\n";
             foreach ($executed as $mig) {
                 echo "  ✔ Migrated: {$mig}\n";
             }
@@ -80,8 +70,8 @@ try {
             echo "--------------------\n";
             echo "Usage: php bin/db.php <command> [--seed]\n\n";
             echo "Commands:\n";
-            echo "  migrate           Run all pending migrations\n";
-            echo "  rollback          Rollback the last migration batch\n";
+            echo "  migrate           Apply core schema (core/DB/schema.sql) and run pending app migrations\n";
+            echo "  rollback          Rollback the last application migration batch\n";
             echo "  wipe              Drop all database tables completely\n";
             echo "  reset [--seed]    Wipe all tables, re-run all migrations, optionally seed\n";
             exit(0);

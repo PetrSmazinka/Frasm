@@ -17,8 +17,30 @@ use Throwable;
  */
 class MethodNotAllowedException extends CoreException
 {
-    public function __construct(string $message = "Method not allowed.", int $code = 405, ?Throwable $previous = null)
-    {
+    /**
+     * @brief MethodNotAllowedException constructor.
+     *
+     * @param string $message Error description.
+     * @param int $code HTTP status code (default 405).
+     * @param Throwable|null $previous Previous throwable.
+     * @param list<string> $allowedMethods HTTP methods accepted by the matched path (emitted in the Allow header).
+     */
+    public function __construct(
+        string $message = "Method not allowed.",
+        int $code = 405,
+        ?Throwable $previous = null,
+        protected array $allowedMethods = []
+    ) {
         parent::__construct($message, $code, $previous);
+    }
+
+    /**
+     * @brief Returns HTTP methods accepted by the matched path.
+     *
+     * @return list<string>
+     */
+    public function getAllowedMethods(): array
+    {
+        return $this->allowedMethods;
     }
 }

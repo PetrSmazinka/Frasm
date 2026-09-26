@@ -28,14 +28,14 @@ if (empty($adminConfig['username']) || empty($adminConfig['password'])) {
 $db = \Core\DB\DB::getInstance();
 
 $existingUser =$db->selectOne(
-    'SELECT id, username FROM `users` WHERE `username` = ? OR `email` = ? LIMIT 1',
+    'SELECT id, username FROM `frasm_users` WHERE `username` = ? OR `email` = ? LIMIT 1',
     [$adminConfig['username'],$adminConfig['email']]
 );
 
 $passwordHash = password_hash((string)$adminConfig['password'], PASSWORD_DEFAULT);
 
 if ($existingUser) {$db->update(
-        'users',
+        'frasm_users',
         [
             'name'          => $adminConfig['name'],
             'password_hash' => $passwordHash,
@@ -46,7 +46,7 @@ if ($existingUser) {$db->update(
     );
     echo "✔ Default administrator '{$adminConfig['username']}' updated successfully.\n";
 } else {
-    $db->insert('users', [
+    $db->insert('frasm_users', [
         'name'          => $adminConfig['name'],
         'email'         => $adminConfig['email'],
         'username'      => $adminConfig['username'],

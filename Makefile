@@ -6,7 +6,7 @@ PORT      := 8000
 HOST      := 127.0.0.1
 PUBLIC_DIR := public
 
-.PHONY: help serve migrate rollback wipe reset seed status prune test clean
+.PHONY: help serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid
 
 # Default target: display help
 help:
@@ -19,6 +19,10 @@ help:
 	@echo "  make fresh       Reset database and seed immediately (wipe + migrate + seed)"
 	@echo "  make prune       Purge expired remember-me tokens from database"
 	@echo "  make wipe        Drop all database tables completely"
+	@echo "  make routes      List all registered routes"
+	@echo "  make routes-cache  Build the route cache (run after deploy)"
+	@echo "  make routes-clear  Delete the route cache"
+	@echo "  make vapid       Generate VAPID keys for Web Push notifications"
 
 # -----------------------------------------------------------------------------
 # Development Server
@@ -53,3 +57,21 @@ fresh:
 # -----------------------------------------------------------------------------
 prune:
 	@$(PHP) bin/prune-tokens.php
+
+# -----------------------------------------------------------------------------
+# Routing
+# -----------------------------------------------------------------------------
+routes:
+	@$(PHP) bin/routes.php list
+
+routes-cache:
+	@$(PHP) bin/routes.php cache
+
+routes-clear:
+	@$(PHP) bin/routes.php clear
+
+# -----------------------------------------------------------------------------
+# Web Push
+# -----------------------------------------------------------------------------
+vapid:
+	@$(PHP) bin/push.php vapid

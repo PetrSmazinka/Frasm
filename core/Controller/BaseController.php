@@ -5,9 +5,16 @@ declare(strict_types=1);
 namespace Core\Controller;
 
 use Core\Config\Config;
+use Core\Container\Container;
 use Core\Exceptions\CoreException;
 use Core\Exceptions\CsrfException;
+use Core\Exceptions\HttpResponseException;
+use Core\Exceptions\ValidationException;
+use Core\Http\Request;
+use Core\Http\Response;
+use Core\Security\Csrf;
 use Core\Session\Session;
+use Core\Validation\Validator;
 
 /**
  * @file BaseController.php
@@ -16,30 +23,36 @@ use Core\Session\Session;
 
 /**
  * @class BaseController
- * @brief Base controller offering response shortcuts, input readers, and CSRF token protection.
+ * @brief Base controller offering response shortcuts, input readers, validation and CSRF token protection.
+ *
+ * Controllers are instantiated through the DI container, so subclasses may declare constructor
+ * dependencies. json() and redirect() never return: they abort the action by throwing an
+ * HttpResponseException which the framework turns back into a regular Response, so middleware
+ * still processes it. Alternatively return a Core\Http\Response from the action.
  */
 abstract class BaseController
 {
     /**
      * @var string Key used to store the CSRF token in session.
      */
-    protected const CSRF_SESSION_KEY = '_frasm_csrf_token';
+    protected const CSRF_SESSION_KEY = Csrf::SESSION_KEY;
 
     /**
      * @var string Form field name and default HTTP header name for the token.
      */
-    protected const CSRF_TOKEN_NAME = '_csrf_token';
+    protected const CSRF_TOKEN_NAME = Csrf::FIELD_NAME;
 
     /**
      * @brief Renders an HTML view template and returns the rendered buffer.
      *
-     * Automatically injects CSRF helpers ($csrf_token, $csrf_field) and flash
-     * notifications ($flash_success, $flash_error) into the view scope.
+     * Automatically injects CSRF helpers ($csrf_token, $csrf_field), flash notifications
+     * ($flash_success, $flash_error, $flash_info) and validation feedback ($errors, $old)
+     * into the view scope.
      *
      * @param string $template View template path relative to the views directory (e.g. 'users/index').
      * @param array<string, mixed> $data Variables to expose to the view template.
      * @return string Rendered HTML content.
-     * @throws CoreException If the view template file does not exist on disk.
+     * @throws CoreException If the view template file does not exist on disk or rendering fails.
      */
     protected function view(string $template, array $data = []): string
     {
@@ -49,6 +62,11 @@ abstract class BaseController
 
         $basePath = (string)Config::get('app.views_path', $defaultViewsPath);
         $cleanTemplate = str_ends_with($template, '.php') ? $template : $template . '.php';
+
+        if (str_contains($cleanTemplate, '..') || str_contains($cleanTemplate, "\0")) {
+            throw new CoreException("Invalid view template name: '{$template}'", 500);
+        }
+
         $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $cleanTemplate;
 
         if (!is_file($fullPath)) {
@@ -56,29 +74,66 @@ abstract class BaseController
         }
 
         // Expose CSRF helpers directly into the view scope
-        $data['csrf_token'] = $this->getCsrfToken();
-        $data['csrf_field'] = $this->csrfField();
+        $data['csrf_token'] = Csrf::token();
+        $data['csrf_field'] = Csrf::field();
 
-        // Expose flash notifications and consume them from session
-        $data['flash_success'] = \Core\Session\Session::getFlash('success');
-        $data['flash_error'] = \Core\Session\Session::getFlash('error');
-        $data['flash_info'] = \Core\Session\Session::getFlash('info');
+        // Expose flash notifications and validation feedback, consuming them from session
+        $data['flash_success'] = Session::getFlash('success');
+        $data['flash_error'] = Session::getFlash('error');
+        $data['flash_info'] = Session::getFlash('info');
+        $data['errors'] = (array)Session::getFlash('errors', []);
+        $data['old'] = (array)Session::getFlash('old', []);
 
-        // Extract parameters into local scope
-        extract($data, EXTR_SKIP);
+        $render = static function (string $__frasmViewPath, array $__frasmViewData): string {
+            // Extract parameters into an isolated scope (no access to $this)
+            extract($__frasmViewData, EXTR_SKIP);
 
-        ob_start();
+            ob_start();
+            try {
+                require $__frasmViewPath;
+                return (string)ob_get_clean();
+            } catch (\Throwable $e) {
+                ob_end_clean();
+                throw $e;
+            }
+        };
+
         try {
-            require $fullPath;
-            return (string)ob_get_clean();
+            return $render($fullPath, $data);
+        } catch (HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            ob_end_clean();
-            throw new CoreException(
-                "Error rendering view '{$template}': " . $e->getMessage(),
-                500,
-                $e
-            );
+            throw new CoreException("Error rendering view '{$template}': " . $e->getMessage(), 500, $e);
         }
+    }
+
+    /**
+     * @brief Returns the current HTTP request.
+     *
+     * @return Request
+     */
+    protected function request(): Request
+    {
+        $container = Container::getInstance();
+        return $container->bound(Request::class) ? $container->get(Request::class) : Request::fromGlobals();
+    }
+
+    /**
+     * @brief Validates request input (or the given data) and returns the validated fields.
+     *
+     * On failure a ValidationException is thrown: JSON clients receive HTTP 422 with the errors,
+     * browser forms are redirected back with $errors and $old available in the next view.
+     *
+     * @param array<string, string|list<string|\Closure>> $rules Rules keyed by field.
+     * @param array<string, string> $messages Custom messages ('field.rule' or 'rule').
+     * @param array<string, string> $attributes Human readable field names.
+     * @param array<string, mixed>|null $data Data to validate (defaults to the request body input).
+     * @return array<string, mixed> Validated data.
+     * @throws ValidationException If validation fails.
+     */
+    protected function validate(array $rules, array $messages = [], array $attributes = [], ?array $data = null): array
+    {
+        return Validator::make($data ?? $this->request()->input(), $rules, $messages, $attributes)->validate();
     }
 
     /**
@@ -88,15 +143,7 @@ abstract class BaseController
      */
     protected function getCsrfToken(): string
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (empty($_SESSION[self::CSRF_SESSION_KEY])) {
-            $_SESSION[self::CSRF_SESSION_KEY] = bin2hex(random_bytes(32));
-        }
-
-        return (string)$_SESSION[self::CSRF_SESSION_KEY];
+        return Csrf::token();
     }
 
     /**
@@ -106,15 +153,14 @@ abstract class BaseController
      */
     protected function csrfField(): string
     {
-        $token = htmlspecialchars($this->getCsrfToken(), ENT_QUOTES, 'UTF-8');
-        return '<input type="hidden" name="' . self::CSRF_TOKEN_NAME . '" value="' . $token . '">';
+        return Csrf::field();
     }
 
     /**
-     * @brief Validates the CSRF token from POST body or HTTP headers.
+     * @brief Validates the CSRF token from the request body or the X-CSRF-TOKEN header.
      *
-     * Timing-attack safe comparison via hash_equals().
-     * Checks $_POST['_csrf_token'] first, then falls back to HTTP header 'X-CSRF-TOKEN'.
+     * Unsafe requests are already validated globally by CsrfMiddleware; calling this explicitly
+     * is useful for token regeneration or when the middleware is disabled.
      *
      * @param bool $regenerate When true, regenerates the token immediately after successful validation.
      * @return void
@@ -122,30 +168,18 @@ abstract class BaseController
      */
     protected function validateCsrf(bool $regenerate = false): void
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $submitted = Csrf::tokenFromRequest($this->request());
 
-        $sessionToken = (string)($_SESSION[self::CSRF_SESSION_KEY] ?? '');
-
-        // 1. Try fetching token from POST payload
-        $submittedToken = $this->input(self::CSRF_TOKEN_NAME);
-
-        // 2. Fall back to request headers (e.g. X-CSRF-TOKEN for Fetch/AJAX requests)
-        if ($submittedToken === null && isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
-            $submittedToken = (string)$_SERVER['HTTP_X_CSRF_TOKEN'];
-        }
-
-        if (empty($sessionToken) || empty($submittedToken) || !is_string($submittedToken)) {
+        if ($submitted === null) {
             throw new CsrfException("Missing or empty CSRF token.", 403);
         }
 
-        if (!hash_equals($sessionToken, $submittedToken)) {
+        if (!Csrf::validate($submitted)) {
             throw new CsrfException("Invalid or expired CSRF token.", 403);
         }
 
         if ($regenerate) {
-            $this->regenerateCsrfToken();
+            Csrf::regenerate();
         }
     }
 
@@ -156,51 +190,38 @@ abstract class BaseController
      */
     protected function regenerateCsrfToken(): string
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        $_SESSION[self::CSRF_SESSION_KEY] = bin2hex(random_bytes(32));
-        return (string)$_SESSION[self::CSRF_SESSION_KEY];
+        return Csrf::regenerate();
     }
 
     /**
-     * @brief Emits a JSON response directly and halts script execution.
+     * @brief Aborts the action with a JSON response.
      *
      * @param mixed $data Payload to serialize into JSON.
      * @param int $status HTTP response status code.
      * @param array<string, string> $headers Additional HTTP response headers.
      * @return never
+     * @throws HttpResponseException Always (carries the response).
      */
     protected function json(mixed $data, int $status = 200, array $headers = []): never
     {
-        http_response_code($status);
-
-        header('Content-Type: application/json; charset=UTF-8');
-        foreach ($headers as $header => $value) {
-            header("{$header}: {$value}");
-        }
-
-        echo json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
-        exit;
+        throw new HttpResponseException(Response::json($data, $status, $headers));
     }
 
     /**
-     * @brief Performs an HTTP redirect to a given URL.
+     * @brief Aborts the action with an HTTP redirect.
      *
-     * @param string $url Destination target URI or URL.
+     * @param string $url Destination target URI or URL (never pass unvalidated user input: open redirect).
      * @param int $status HTTP redirect status code (301, 302, 303, 307, 308).
      * @return never
+     * @throws HttpResponseException Always (carries the response).
      */
     protected function redirect(string $url, int $status = 302): never
     {
-        http_response_code($status);
-        header("Location: {$url}");
-        exit;
+        throw new HttpResponseException(Response::redirect($url, $status));
     }
 
     /**
-     * @brief Retrieves a value from query string parameters ($_GET).
+     * @brief Retrieves a value from query string parameters.
      *
      * @param string|null $key Parameter key or null to return all query params.
      * @param mixed $default Fallback value if key is not present.
@@ -208,27 +229,19 @@ abstract class BaseController
      */
     protected function query(?string $key = null, mixed $default = null): mixed
     {
-        if ($key === null) {
-            return $_GET;
-        }
-
-        return $_GET[$key] ?? $default;
+        return $this->request()->query($key, $default);
     }
 
     /**
-     * @brief Retrieves a value from POST request body ($_POST).
+     * @brief Retrieves a value from the request body (form fields or JSON payload).
      *
-     * @param string|null $key Parameter key or null to return all POST params.
+     * @param string|null $key Parameter key or null to return all body params.
      * @param mixed $default Fallback value if key is not present.
      * @return mixed
      */
     protected function input(?string $key = null, mixed $default = null): mixed
     {
-        if ($key === null) {
-            return $_POST;
-        }
-
-        return $_POST[$key] ?? $default;
+        return $this->request()->input($key, $default);
     }
 
     /**
@@ -239,20 +252,15 @@ abstract class BaseController
      */
     protected function jsonBody(bool $associative = true): mixed
     {
-        $raw = file_get_contents('php://input');
-        if ($raw === false || trim($raw) === '') {
-            return null;
-        }
-
-        try {
-            return json_decode($raw, $associative, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return null;
-        }
+        return $this->request()->json($associative);
     }
 
     /**
      * @brief Sets a one-time flash notification.
+     *
+     * @param string $type Flash identifier (e.g. 'success', 'error', 'info').
+     * @param string $message Message content.
+     * @return void
      */
     protected function flash(string $type, string $message): void
     {

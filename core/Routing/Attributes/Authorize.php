@@ -14,7 +14,9 @@ use Attribute;
 class Authorize
 {
     /**
-     * @param list<string>|string $roles Required user role(s).
+     * @brief Declares that the route requires an authenticated identity with at least one of the roles.
+     *
+     * @param list<string>|string $roles Required user role(s); empty means "any authenticated user".
      */
     public function __construct(
         public array|string $roles = []

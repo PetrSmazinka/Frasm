@@ -13,6 +13,23 @@ return [
      */
     'enabled' => true,
 
+    /*
+     * User provider resolving identities (id + roles) for remember-me logins.
+     * Must implement Core\Auth\UserProviderInterface; override to map a custom user model.
+     */
+    'provider' => \Core\Auth\DatabaseUserProvider::class,
+
+    /*
+     * Unauthenticated browser GET requests to protected routes are redirected here
+     * (null = respond with 401 instead).
+     */
+    'login_path' => '/login',
+
+    /*
+     * Write an audit log entry (level info) for every request authenticated with an API token.
+     */
+    'api_audit_log' => true,
+
     'remember_cookie' => 'frasm_remember',
     'remember_lifetime_days' => 30,
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\Security\Csrf;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -20,6 +21,8 @@ abstract class Component
 {
     /**
      * @brief Path to the template file for this component.
+     *
+     * @return string Absolute path to a PHP template.
      */
     abstract protected function template(): string;
 
@@ -134,19 +137,31 @@ abstract class Component
     /**
      * @brief Renders the component HTML wrapped with synchronization metadata.
      *
+     * The wrapper carries the component class, its serialized public state and the session CSRF
+     * token used by frasm-live.js for the synchronization request.
+     *
      * @return string
+     * @throws \JsonException If the state cannot be serialized.
+     * @throws \Throwable Any exception raised by the template (output buffer is discarded).
      */
     public function render(): string
     {
-        $stateJson = htmlspecialchars(json_encode($this->getState(), JSON_THROW_ON_ERROR), ENT_QUOTES, 'UTF-8');
+        $state = $this->getState();
+        $stateJson = htmlspecialchars(json_encode($state, JSON_THROW_ON_ERROR), ENT_QUOTES, 'UTF-8');
         $componentClass = htmlspecialchars(static::class, ENT_QUOTES, 'UTF-8');
+        $csrfToken = htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8');
 
-        extract($this->getState(), EXTR_SKIP);
+        extract($state, EXTR_SKIP);
 
         ob_start();
-        include $this->template();
-        $innerHtml = (string)ob_get_clean();
+        try {
+            include $this->template();
+            $innerHtml = (string)ob_get_clean();
+        } catch (\Throwable $e) {
+            ob_end_clean();
+            throw $e;
+        }
 
-        return "<div data-frasm-component=\"{$componentClass}\" data-frasm-state=\"{$stateJson}\">{$innerHtml}</div>";
+        return "<div data-frasm-component=\"{$componentClass}\" data-frasm-state=\"{$stateJson}\" data-frasm-csrf=\"{$csrfToken}\">{$innerHtml}</div>";
     }
 }

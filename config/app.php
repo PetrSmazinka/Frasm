@@ -13,4 +13,7 @@ return [
     'charset'  => 'UTF-8',
     'locale' => 'cs',
     'fallback_locale' => 'en',
+
+    // Reverse proxies (IPs or CIDR ranges) allowed to set X-Forwarded-For / X-Forwarded-Proto
+    'trusted_proxies' => [],
 ];
