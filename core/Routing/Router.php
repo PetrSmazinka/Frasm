@@ -193,22 +193,36 @@ class Router
      *
      * @param Route $route Matched route instance.
      * @return void
+     * @throws CoreException If #[Authorize] is used while the Auth module is disabled.
      * @throws AuthException If current user lacks permissions.
      */
     protected function enforceAuthorization(Route $route): void
     {
-        $roles = $route->getMetadata('auth_roles');
-        if ($roles === null) {
+        $requiredRoles = $route->getMetadata('auth_roles');
+        if ($requiredRoles === null) {
             return;
         }
 
-        $currentUserRole = $_SESSION['user_role'] ?? null;
+        // Verify if authentication module is enabled in configuration
+        if (!\Core\Config\Config::get('auth.enabled', true)) {
+            throw new CoreException(
+                "Route '{$route->getPath()}' specifies #[Authorize], but the Auth module is disabled in config/auth.php.",
+                500
+            );
+        }
 
-        if ($currentUserRole === null) {
+        // 1. User is not authenticated
+        if (!\Core\Auth\Auth::check()) {
             throw new AuthException("User is unauthenticated.", 401);
         }
 
-        if (!empty($roles) && !in_array($currentUserRole, (array)$roles, true)) {
+        // 2. #[Authorize] without specific roles: being logged in is sufficient
+        if (empty($requiredRoles)) {
+            return;
+        }
+
+        // 3. User must possess at least one matching role
+        if (!\Core\Auth\Auth::hasAnyRole($requiredRoles)) {
             throw new AuthException("User does not have required permissions.", 403);
         }
     }

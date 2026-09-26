@@ -7,17 +7,20 @@ declare(strict_types=1);
  * @brief Universal public web entry point (Front Controller) for the Frasm framework.
  *
  * Bootstraps the autoloader, applies debug and error-reporting directives from Config,
- * dynamically registers all application controllers, and dispatches the HTTP request.
+ * initializes session and localization, dynamically registers application controllers,
+ * and dispatches the HTTP request.
  */
 
 use Core\Autoload\Autoloader;
 use Core\Config\Config;
-use Core\Routing\Router;
 use Core\Exceptions\AuthException;
 use Core\Exceptions\CoreException;
 use Core\Exceptions\FrasmException;
-use Core\Exceptions\RouteNotFoundException;
 use Core\Exceptions\MethodNotAllowedException;
+use Core\Exceptions\RouteNotFoundException;
+use Core\I18n\Lang;
+use Core\Routing\Router;
+use Core\Session\Session;
 use Core\View\Live\LiveComponentHandler;
 
 /**
@@ -30,7 +33,7 @@ define('FRASM_CONFIG_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'config');
 
 /*
  * -----------------------------------------------------------------------------
- * 1. Register PSR-4 Autoloader
+ * 1. Register PSR-4 Autoloader & Core Global Helpers
  * -----------------------------------------------------------------------------
  */
 require_once FRASM_CORE_DIR . DIRECTORY_SEPARATOR . 'Autoload' . DIRECTORY_SEPARATOR . 'Autoloader.php';
@@ -39,6 +42,12 @@ $autoloader = new Autoloader();
 $autoloader->addNamespace('Core', FRASM_CORE_DIR);
 $autoloader->addNamespace('App', FRASM_APP_DIR);
 $autoloader->register();
+
+// Load core global helper functions (e.g., __() for i18n)
+$helpersPath = FRASM_CORE_DIR . DIRECTORY_SEPARATOR . 'Helpers' . DIRECTORY_SEPARATOR . 'helpers.php';
+if (file_exists($helpersPath)) {
+    require_once $helpersPath;
+}
 
 /*
  * -----------------------------------------------------------------------------
@@ -83,10 +92,17 @@ date_default_timezone_set((string)Config::get('app.timezone', 'UTC'));
  * -----------------------------------------------------------------------------
  */
 try {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
+    // Securely start or resume session via the Session service
+    Session::start();
+
+    // Auto-login from persistent remember-me cookie (only if Auth module is enabled)
+    $authEnabled = (bool)Config::get('auth.enabled', true);
+    if ($authEnabled && !\Core\Auth\Auth::check()) {
+        \Core\Auth\Auth::attemptRememberLogin();
     }
 
+    // Boot localization service
+    Lang::boot();
     $router = new Router();
 
     // 1. Register framework internal core handlers

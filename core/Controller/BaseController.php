@@ -7,6 +7,7 @@ namespace Core\Controller;
 use Core\Config\Config;
 use Core\Exceptions\CoreException;
 use Core\Exceptions\CsrfException;
+use Core\Session\Session;
 
 /**
  * @file BaseController.php
@@ -32,7 +33,8 @@ abstract class BaseController
     /**
      * @brief Renders an HTML view template and returns the rendered buffer.
      *
-     * Automatically injects CSRF helpers ($csrf_token and $csrf_field) into the view scope.
+     * Automatically injects CSRF helpers ($csrf_token, $csrf_field) and flash
+     * notifications ($flash_success, $flash_error) into the view scope.
      *
      * @param string $template View template path relative to the views directory (e.g. 'users/index').
      * @param array<string, mixed> $data Variables to expose to the view template.
@@ -56,6 +58,11 @@ abstract class BaseController
         // Expose CSRF helpers directly into the view scope
         $data['csrf_token'] = $this->getCsrfToken();
         $data['csrf_field'] = $this->csrfField();
+
+        // Expose flash notifications and consume them from session
+        $data['flash_success'] = \Core\Session\Session::getFlash('success');
+        $data['flash_error'] = \Core\Session\Session::getFlash('error');
+        $data['flash_info'] = \Core\Session\Session::getFlash('info');
 
         // Extract parameters into local scope
         extract($data, EXTR_SKIP);
@@ -242,5 +249,13 @@ abstract class BaseController
         } catch (\JsonException) {
             return null;
         }
+    }
+
+    /**
+     * @brief Sets a one-time flash notification.
+     */
+    protected function flash(string $type, string $message): void
+    {
+        Session::flash($type, $message);
     }
 }
