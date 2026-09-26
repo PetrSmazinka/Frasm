@@ -95,7 +95,14 @@ try {
     // Securely start or resume session via the Session service
     Session::start();
 
-    // Auto-login from persistent remember-me cookie (only if Auth module is enabled)
+    // 1. Service Auth: Check Authorization: Bearer <token> header first
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (str_starts_with($authHeader, 'Bearer ')) {
+        $token = trim(substr($authHeader, 7));
+        \Core\Auth\Auth::attemptTokenLogin($token);
+    }
+
+    // 2. Browser Auth: Auto-login from persistent remember-me cookie if not yet authenticated
     $authEnabled = (bool)Config::get('auth.enabled', true);
     if ($authEnabled && !\Core\Auth\Auth::check()) {
         \Core\Auth\Auth::attemptRememberLogin();

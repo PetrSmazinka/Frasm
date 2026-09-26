@@ -11,7 +11,7 @@ use Core\Session\Session;
 
 /**
  * @file Auth.php
- * @brief High-level authentication, role, and persistent remember-me token manager.
+ * @brief High-level authentication manager handling stateful sessions, remember-me tokens, and stateless API service authorization.
  */
 class Auth
 {
@@ -19,7 +19,17 @@ class Auth
     private const SESSION_ROLES = '_auth_user_roles';
 
     /**
+     * @var array{id: int|string, roles: list<string>}|null Ephemeral in-memory identity for stateless API/Service requests.
+     */
+    protected static ?array $statelessIdentity = null;
+
+    /**
      * @brief Logs user in, assigns roles, and regenerates session ID.
+     *
+     * @param int|string $userId Primary key of the authenticated user.
+     * @param array<string>|string $roles Role name or list of roles.
+     * @param bool $remember Whether to issue a long-lived remember cookie.
+     * @return void
      */
     public static function login(int|string $userId, array|string $roles = 'user', bool$remember = false): void
     {
@@ -36,6 +46,8 @@ class Auth
 
     /**
      * @brief Logs out current user, terminates remember-me cookie and clears token in DB.
+     *
+     * @return void
      */
     public static function logout(): void
     {
@@ -44,31 +56,87 @@ class Auth
         Session::remove(self::SESSION_USER_ID);
         Session::remove(self::SESSION_ROLES);
         Session::regenerate(true);
+        self::$statelessIdentity = null;
     }
 
+    /**
+     * @brief Registers an in-memory identity for the current request lifecycle without session persistence.
+     *
+     * @param int|string $id Service or external entity identifier.
+     * @param array<string>|string $roles Assigned permissions or roles.
+     * @return void
+     */
+    public static function setStatelessUser(int|string $id, array|string$roles): void
+    {
+        $normalizedRoles = is_array($roles)
+            ? array_values($roles)
+            : array_values(array_filter(array_map('trim', explode(',', $roles))));
+
+        self::$statelessIdentity = [
+            'id'    => $id,
+            'roles' => $normalizedRoles,
+        ];
+    }
+
+    /**
+     * @brief Checks if an active session exists or an API service has been authenticated in runtime.
+     *
+     * @return bool True if authenticated, false otherwise.
+     */
     public static function check(): bool
     {
+        if (self::$statelessIdentity !== null) {
+            return true;
+        }
+
         return Session::has(self::SESSION_USER_ID) && Session::get(self::SESSION_USER_ID) !== null;
     }
 
+    /**
+     * @brief Retrieves the current authenticated entity identifier (User ID or Service identifier).
+     *
+     * @return int|string|null
+     */
     public static function id(): int|string|null
     {
+        if (self::$statelessIdentity !== null) {
+            return self::$statelessIdentity['id'];
+        }
+
         return Session::get(self::SESSION_USER_ID);
     }
 
     /**
+     * @brief Returns list of active roles for current session or API service.
+     *
      * @return list<string>
      */
     public static function roles(): array
     {
+        if (self::$statelessIdentity !== null) {
+            return self::$statelessIdentity['roles'];
+        }
+
         return (array)Session::get(self::SESSION_ROLES, []);
     }
 
+    /**
+     * @brief Checks if current identity has the specific role assigned.
+     *
+     * @param string $role Role identifier.
+     * @return bool
+     */
     public static function hasRole(string $role): bool
     {
         return in_array($role, self::roles(), true);
     }
 
+    /**
+     * @brief Checks if current identity possesses at least one of the specified roles.
+     *
+     * @param array<string>|string $roles Single role or array of roles.
+     * @return bool
+     */
     public static function hasAnyRole(array|string $roles): bool
     {
         $requiredRoles = (array)$roles;
@@ -77,6 +145,38 @@ class Auth
         }
 
         return !empty(array_intersect(self::roles(), $requiredRoles));
+    }
+
+    /**
+     * @brief Authenticates an external request via Bearer API token against the api_tokens table.
+     *
+     * @param string $plainToken Plain token string from the Authorization header.
+     * @return bool True if the token is valid and not expired, false otherwise.
+     */
+    public static function attemptTokenLogin(string $plainToken): bool
+    {
+        $tokenHash = hash('sha256', $plainToken);$db = DB::getInstance();
+
+        $token =$db->selectOne(
+            'SELECT `id`, `service_name`, `roles`, `expires_at` 
+             FROM `api_tokens` 
+             WHERE `token_hash` = ? 
+               AND (`expires_at` IS NULL OR `expires_at` > NOW()) 
+             LIMIT 1',
+            [$tokenHash]
+        );
+
+        if (!$token) {
+            return false;
+        }
+
+        // Update last activity timestamp
+        $db->update('api_tokens', ['last_used_at' => date('Y-m-d H:i:s')], '`id` = ?', [$token['id']]);
+
+        // Register stateless session for request duration
+        self::setStatelessUser('service:' . (string)$token['service_name'], (string)$token['roles']);
+
+        return true;
     }
 
     /**
@@ -110,14 +210,14 @@ class Auth
 
         $calculatedHash = hash('sha256',$validator);
         if (!hash_equals((string)$tokenRecord['validator_hash'],$calculatedHash)) {
-            // Potential theft detected: clear all tokens for this user
-            $db->delete('user_remember_tokens', 'user_id = ?', [$tokenRecord['user_id']]);
+            // Potential token hijacking detected: clear all tokens for this user
+            $db->delete('user_remember_tokens', '`user_id` = ?', [$tokenRecord['user_id']]);
             self::clearRememberCookie();
             return false;
         }
 
         // Fetch corresponding user and restore session
-        $user =$db->selectOne('SELECT id, permissions FROM `users` WHERE `id` = ? LIMIT 1', [$tokenRecord['user_id']]);
+        $user =$db->selectOne('SELECT `id`, `permissions` FROM `users` WHERE `id` = ? LIMIT 1', [$tokenRecord['user_id']]);
         if (!$user) {
             return false;
         }
@@ -128,7 +228,7 @@ class Auth
         Session::set(self::SESSION_ROLES, $roles);
 
         // Rotate token for improved security
-        $db->delete('user_remember_tokens', 'id = ?', [$tokenRecord['id']]);
+        $db->delete('user_remember_tokens', '`id` = ?', [$tokenRecord['id']]);
         self::issueRememberToken((int)$user['id']);
 
         return true;
@@ -136,6 +236,9 @@ class Auth
 
     /**
      * @brief Generates, stores, and issues a selector:validator remember cookie.
+     *
+     * @param int $userId Target user identifier.
+     * @return void
      */
     protected static function issueRememberToken(int $userId): void
     {
@@ -167,6 +270,8 @@ class Auth
 
     /**
      * @brief Invalidates database remember tokens and deletes client cookie.
+     *
+     * @return void
      */
     protected static function clearRememberToken(): void
     {
