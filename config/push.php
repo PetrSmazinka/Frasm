@@ -34,6 +34,21 @@ return [
     'concurrency' => 10,
     'timeout'     => 10,
 
+    // Channels subscribers can opt into (name => label for the UI); empty = any valid name accepted
+    'channels' => [
+        // 'alarms'  => 'Alarms',
+        // 'reports' => 'Daily reports',
+    ],
+
+    // Channels a new subscription joins when the client does not send its own list
+    'default_channels' => [],
+
+    // Queue used by PushManager::queue() (processed by `php bin/queue.php work`)
+    'queue' => 'default',
+
+    // Validity of signed tokens for background POST action buttons (seconds)
+    'action_token_ttl' => 604800,
+
     // Push services the server may contact (protects against SSRF via forged endpoints)
     'allowed_hosts' => [
         'fcm.googleapis.com',

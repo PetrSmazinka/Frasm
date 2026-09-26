@@ -22,6 +22,12 @@ use Throwable;
  * Messages are flattened to a single line (log-injection safe); context is JSON encoded.
  * Files older than the retention period are pruned whenever a new daily file is started.
  * The logger never throws: a failed write falls back to PHP's error_log().
+ *
+ * SD card friendly operation (Raspberry Pi):
+ *  - Entries are buffered in memory and written with a single append per request (at shutdown,
+ *    when the buffer exceeds 64 KiB, or immediately for critical and higher levels).
+ *  - The log directory may live on tmpfs (e.g. /dev/shm/frasm/logs); archive() then moves the
+ *    content to persistent storage (`php bin/logs.php archive` from cron).
  */
 class Logger extends AbstractLogger
 {
@@ -31,18 +37,42 @@ class Logger extends AbstractLogger
     protected int $minPriority;
 
     /**
+     * @var int Buffer size that triggers an immediate flush.
+     */
+    protected const BUFFER_LIMIT = 65536;
+
+    /**
+     * @var array<string, string> Pending lines grouped by target file.
+     */
+    protected array $buffer = [];
+
+    /**
+     * @var int Size of pending lines in bytes.
+     */
+    protected int $bufferedBytes = 0;
+
+    /**
+     * @var bool Whether the shutdown flush has been registered.
+     */
+    protected bool $shutdownRegistered = false;
+
+    /**
      * @brief Logger constructor.
      *
      * @param string $directory Target directory (created on demand).
      * @param string $minLevel Minimum level to record (LogLevel constant).
      * @param string $channel File name prefix.
      * @param int $retentionDays Days of history kept besides today (0 disables pruning).
+     * @param bool $buffered Buffer entries and write them once per request.
+     * @param string|null $archiveDirectory Persistent directory used by archive() (null = no archiving).
      */
     public function __construct(
         protected string $directory,
         string $minLevel = LogLevel::DEBUG,
         protected string $channel = 'frasm',
-        protected int $retentionDays = 14
+        protected int $retentionDays = 14,
+        protected bool $buffered = true,
+        protected ?string $archiveDirectory = null
     ) {
         $this->directory = rtrim($directory, DIRECTORY_SEPARATOR);
         $this->minPriority = LogLevel::PRIORITIES[$minLevel] ?? LogLevel::PRIORITIES[LogLevel::DEBUG];
@@ -68,7 +98,107 @@ class Logger extends AbstractLogger
         }
 
         $line = $this->formatLine($level, (string)$message, $context);
-        $this->write($line);
+
+        if (!$this->buffered) {
+            $this->write($this->currentFile(), $line);
+            return;
+        }
+
+        $file = $this->currentFile();
+        $this->buffer[$file] = ($this->buffer[$file] ?? '') . $line;
+        $this->bufferedBytes += strlen($line);
+
+        if (!$this->shutdownRegistered) {
+            register_shutdown_function([$this, 'flush']);
+            $this->shutdownRegistered = true;
+        }
+
+        if ($this->bufferedBytes >= self::BUFFER_LIMIT || LogLevel::PRIORITIES[$level] >= LogLevel::PRIORITIES[LogLevel::CRITICAL]) {
+            $this->flush();
+        }
+    }
+
+    /**
+     * @brief Writes all buffered entries (one append per target file).
+     *
+     * Called automatically at shutdown; long-running processes (queue worker) call it periodically.
+     *
+     * @return void
+     */
+    public function flush(): void
+    {
+        $buffer = $this->buffer;
+        $this->buffer = [];
+        $this->bufferedBytes = 0;
+
+        foreach ($buffer as $file => $lines) {
+            $this->write($file, $lines);
+        }
+    }
+
+    /**
+     * @brief Moves log content from the (volatile) log directory into the archive directory.
+     *
+     * Each file is locked while being copied and truncated, so concurrent writers never lose lines.
+     * Files of previous days are removed from the volatile directory afterwards.
+     *
+     * @return int Number of bytes archived.
+     */
+    public function archive(): int
+    {
+        $this->flush();
+
+        if ($this->archiveDirectory === null) {
+            return 0;
+        }
+
+        $archive = rtrim($this->archiveDirectory, DIRECTORY_SEPARATOR);
+        if (realpath($archive) !== false && realpath($archive) === realpath($this->directory)) {
+            return 0;
+        }
+        if (!is_dir($archive) && !@mkdir($archive, 0775, true) && !is_dir($archive)) {
+            error_log('[Frasm Logger] Cannot create archive directory: ' . $archive);
+            return 0;
+        }
+
+        $moved = 0;
+        $today = $this->channel . '-' . date('Y-m-d') . '.log';
+
+        foreach (glob($this->directory . DIRECTORY_SEPARATOR . $this->channel . '-*.log') ?: [] as $file) {
+            $handle = @fopen($file, 'r+');
+            if ($handle === false) {
+                continue;
+            }
+
+            try {
+                if (!flock($handle, LOCK_EX)) {
+                    continue;
+                }
+
+                $content = stream_get_contents($handle);
+                if (is_string($content) && $content !== '') {
+                    $target = $archive . DIRECTORY_SEPARATOR . basename($file);
+                    if (@file_put_contents($target, $content, FILE_APPEND | LOCK_EX) === false) {
+                        error_log('[Frasm Logger] Cannot append to archive file: ' . $target);
+                        continue;
+                    }
+                    @chmod($target, 0664);
+                    ftruncate($handle, 0);
+                    $moved += strlen($content);
+                }
+
+                if (basename($file) !== $today) {
+                    @unlink($file);
+                }
+            } finally {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+
+        $this->pruneOldFiles($archive);
+
+        return $moved;
     }
 
     /**
@@ -209,14 +339,14 @@ class Logger extends AbstractLogger
     }
 
     /**
-     * @brief Appends a line to today's file, creating the directory and pruning old files as needed.
+     * @brief Appends lines to a log file, creating the directory and pruning old files as needed.
      *
-     * @param string $line Formatted line.
+     * @param string $file Target file.
+     * @param string $line Formatted line(s).
      * @return void
      */
-    protected function write(string $line): void
+    protected function write(string $file, string $line): void
     {
-        $file = $this->currentFile();
         $isNewFile = !is_file($file);
 
         if (!is_dir($this->directory)) {
@@ -238,23 +368,24 @@ class Logger extends AbstractLogger
         if ($isNewFile) {
             // Allow both the web server and CLI users (same group) to append to the file
             @chmod($file, 0664);
-            $this->pruneOldFiles();
+            $this->pruneOldFiles($this->directory);
         }
     }
 
     /**
      * @brief Deletes channel log files older than the retention period.
      *
+     * @param string $directory Directory to prune.
      * @return void
      */
-    protected function pruneOldFiles(): void
+    protected function pruneOldFiles(string $directory): void
     {
         if ($this->retentionDays <= 0) {
             return;
         }
 
         $threshold = date('Y-m-d', strtotime("-{$this->retentionDays} days"));
-        $files = glob($this->directory . DIRECTORY_SEPARATOR . $this->channel . '-*.log') ?: [];
+        $files = glob(rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $this->channel . '-*.log') ?: [];
 
         foreach ($files as $file) {
             if (preg_match('/-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches) && $matches[1] < $threshold) {

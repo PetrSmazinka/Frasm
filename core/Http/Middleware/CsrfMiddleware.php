@@ -10,6 +10,7 @@ use Core\Exceptions\CsrfException;
 use Core\Http\Request;
 use Core\Http\RequestHandlerInterface;
 use Core\Http\Response;
+use Core\Push\PushAction;
 use Core\Security\Csrf;
 
 /**
@@ -23,7 +24,9 @@ use Core\Security\Csrf;
  *
  * Skipped for safe methods, for requests authenticated statelessly with a Bearer token
  * (browsers cannot attach that header cross-site) and for paths listed in `middleware.csrf_except`
- * (a trailing `*` matches any suffix, e.g. '/api/*'). Must run after AuthenticateMiddleware.
+ * (a trailing `*` matches any suffix, e.g. '/api/*'). A POST carrying a valid signed push action
+ * token (X-Frasm-Push-Action, bound to the request path) is accepted as well; the verified action
+ * is exposed as request attribute 'push_action'. Must run after AuthenticateMiddleware.
  */
 class CsrfMiddleware implements MiddlewareInterface
 {
@@ -38,6 +41,12 @@ class CsrfMiddleware implements MiddlewareInterface
     public function process(Request $request, RequestHandlerInterface $next): Response
     {
         if ($request->isMethodSafe() || Auth::isStateless() || $this->isExcepted($request->path())) {
+            return $next->handle($request);
+        }
+
+        $pushAction = PushAction::fromRequest($request);
+        if ($pushAction !== null) {
+            $request->setAttribute('push_action', $pushAction);
             return $next->handle($request);
         }
 

@@ -30,14 +30,15 @@ if (!function_exists('frasm_head')) {
      * Place it inside <head> of every layout. Scripts are versioned by modification time and marked
      * with data-frasm-track, so a deployment of new framework scripts forces a full page reload.
      *
-     * @param list<string>|null $features Client modules: 'nav', 'live', 'push' (null = nav + live, plus push when enabled).
+     * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push'
+     *                                     (null = nav + live + stream, plus push when enabled).
      * @return string HTML markup.
      * @throws \Core\Exceptions\CoreException On an unknown feature name.
      */
     function frasm_head(?array $features = null): string
     {
         $pushEnabled = \Core\Push\PushManager::isEnabled();
-        $features ??= $pushEnabled ? ['nav', 'live', 'push'] : ['nav', 'live'];
+        $features ??= $pushEnabled ? ['nav', 'live', 'stream', 'push'] : ['nav', 'live', 'stream'];
 
         $container = \Core\Container\Container::getInstance();
         $request = $container->bound(\Core\Http\Request::class)
@@ -56,7 +57,7 @@ if (!function_exists('frasm_head')) {
         }
 
         foreach ($features as $feature) {
-            if (!in_array($feature, ['nav', 'live', 'push'], true)) {
+            if (!in_array($feature, ['nav', 'live', 'stream', 'push'], true)) {
                 throw new \Core\Exceptions\CoreException("Unknown frasm_head() feature '{$feature}'.");
             }
 

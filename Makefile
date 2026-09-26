@@ -6,7 +6,7 @@ PORT      := 8000
 HOST      := 127.0.0.1
 PUBLIC_DIR := public
 
-.PHONY: help serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid
+.PHONY: help serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid key queue-work queue-stats logs-archive
 
 # Default target: display help
 help:
@@ -23,6 +23,10 @@ help:
 	@echo "  make routes-cache  Build the route cache (run after deploy)"
 	@echo "  make routes-clear  Delete the route cache"
 	@echo "  make vapid       Generate VAPID keys for Web Push notifications"
+	@echo "  make key         Generate the application key (app.key)"
+	@echo "  make queue-work  Process queued jobs until the queue is empty (cron mode)"
+	@echo "  make queue-stats Show pending / running / failed jobs"
+	@echo "  make logs-archive  Move logs from tmpfs to persistent storage"
 
 # -----------------------------------------------------------------------------
 # Development Server
@@ -75,3 +79,21 @@ routes-clear:
 # -----------------------------------------------------------------------------
 vapid:
 	@$(PHP) bin/push.php vapid
+
+key:
+	@$(PHP) bin/key.php
+
+# -----------------------------------------------------------------------------
+# Job Queue
+# -----------------------------------------------------------------------------
+queue-work:
+	@$(PHP) bin/queue.php work --once
+
+queue-stats:
+	@$(PHP) bin/queue.php stats
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+logs-archive:
+	@$(PHP) bin/logs.php archive

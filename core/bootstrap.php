@@ -71,7 +71,9 @@ $container->singleton(LoggerInterface::class, function (): LoggerInterface {
         (string)Config::get('logging.path', FRASM_STORAGE_DIR . DIRECTORY_SEPARATOR . 'logs'),
         LogLevel::isValid($level) ? $level : LogLevel::DEBUG,
         (string)Config::get('logging.channel', 'frasm'),
-        (int)Config::get('logging.retention_days', 14)
+        (int)Config::get('logging.retention_days', 14),
+        (bool)Config::get('logging.buffered', true),
+        Config::get('logging.archive_path') !== null ? (string)Config::get('logging.archive_path') : null
     );
 });
 $container->singleton(Logger::class, fn(Container $c): LoggerInterface => $c->get(LoggerInterface::class));
@@ -89,6 +91,9 @@ $container->singleton(UserProviderInterface::class, function (Container $c): Use
 
 $container->singleton(RateLimiter::class, fn(): RateLimiter => new RateLimiter(
     (int)Config::get('middleware.rate_limit_prune_probability', 100)
+));
+$container->singleton(\Core\Queue\QueueInterface::class, fn(): \Core\Queue\QueueInterface => new \Core\Queue\DatabaseQueue(
+    (int)Config::get('queue.retry_after', 300)
 ));
 $container->singleton(Router::class);
 $container->singleton(MiddlewareResolver::class);

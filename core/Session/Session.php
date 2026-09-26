@@ -30,7 +30,8 @@ class Session
      *
      * Enforces strict mode (rejects uninitialized session IDs), cookie-only transport,
      * HttpOnly, SameSite and the Secure flag on HTTPS. Cookie name and SameSite policy can be
-     * configured via `session.name` and `session.same_site`.
+     * configured via `session.name` and `session.same_site`; `session.save_path` moves session
+     * files elsewhere (e.g. tmpfs) and enables PHP's session garbage collection for that path.
      *
      * @return void
      */
@@ -44,6 +45,19 @@ class Session
             ini_set('session.use_strict_mode', '1');
             ini_set('session.use_only_cookies', '1');
             ini_set('session.use_trans_sid', '0');
+
+            // Optional custom storage, e.g. tmpfs on Raspberry Pi to spare the SD card
+            $savePath = (string)Config::get('session.save_path', '');
+            if ($savePath !== '') {
+                if (!is_dir($savePath)) {
+                    @mkdir($savePath, 0700, true);
+                }
+                session_save_path($savePath);
+                // Debian disables PHP's session GC and cleans only the default directory by cron
+                ini_set('session.gc_probability', '1');
+                ini_set('session.gc_divisor', '100');
+                ini_set('session.gc_maxlifetime', (string)max(1440, (int)Config::get('session.gc_maxlifetime', 7200)));
+            }
 
             $name = (string)Config::get('session.name', '');
             if ($name !== '' && preg_match('/^[A-Za-z0-9_]+$/D', $name)) {

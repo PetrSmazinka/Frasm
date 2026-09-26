@@ -16,8 +16,24 @@ CREATE TABLE IF NOT EXISTS `frasm_rate_limits` (
     `hits` INT UNSIGNED NOT NULL DEFAULT 0,
     `expires_at` DATETIME NOT NULL,
     PRIMARY KEY (`key_hash`),
-    KEY `idx_expires_at` (`expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;
+    KEY `idx_expires_at` (`expires_at`) USING BTREE
+) ENGINE=MEMORY DEFAULT CHARSET=ascii COLLATE=ascii_bin COMMENT='Volatile by design: no disk writes (SD card), counters reset on DB restart';
+
+CREATE TABLE IF NOT EXISTS `frasm_jobs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `queue` VARCHAR(64) NOT NULL DEFAULT 'default',
+    `job_class` VARCHAR(255) NOT NULL,
+    `payload` MEDIUMTEXT NOT NULL,
+    `attempts` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    `max_attempts` SMALLINT UNSIGNED NOT NULL DEFAULT 3,
+    `available_at` DATETIME NOT NULL,
+    `reserved_at` DATETIME NULL,
+    `failed_at` DATETIME NULL,
+    `last_error` TEXT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_queue_pick` (`queue`, `failed_at`, `available_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- @module auth
 
@@ -75,3 +91,12 @@ CREATE TABLE IF NOT EXISTS `frasm_push_subscriptions` (
     UNIQUE KEY `uniq_endpoint_hash` (`endpoint_hash`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `frasm_push_channels` (
+    `subscription_id` INT UNSIGNED NOT NULL,
+    `channel` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (`subscription_id`, `channel`),
+    KEY `idx_channel` (`channel`, `subscription_id`),
+    CONSTRAINT `fk_frasm_push_channels_subscription` FOREIGN KEY (`subscription_id`)
+        REFERENCES `frasm_push_subscriptions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;

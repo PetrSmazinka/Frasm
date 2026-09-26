@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\Exceptions\CoreException;
 use Core\Security\Csrf;
+use Core\Security\Signer;
+use Core\View\Attributes\Locked;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -19,6 +22,11 @@ use ReflectionProperty;
  */
 abstract class Component
 {
+    /**
+     * @var string Signer purpose for the state checksum.
+     */
+    public const CHECKSUM_PURPOSE = 'live-component';
+
     /**
      * @brief Path to the template file for this component.
      *
@@ -106,6 +114,37 @@ abstract class Component
     }
 
     /**
+     * @brief Rejects client updates targeting properties marked with #[Locked].
+     *
+     * @param array<string, mixed> $updates Incoming key-value updates.
+     * @return void
+     * @throws CoreException 400 when a locked property is targeted.
+     */
+    public function assertUpdatable(array $updates): void
+    {
+        $ref = new ReflectionClass($this);
+
+        foreach (array_keys($updates) as $key) {
+            if ($ref->hasProperty((string)$key) && $ref->getProperty((string)$key)->getAttributes(Locked::class) !== []) {
+                throw new CoreException("Property '{$key}' of component '" . static::class . "' is locked.", 400);
+            }
+        }
+    }
+
+    /**
+     * @brief Computes the checksum binding a serialized state to the component class.
+     *
+     * @param string $class Component class name.
+     * @param string $stateJson State exactly as serialized into data-frasm-state.
+     * @return string
+     * @throws CoreException If app.key is not configured.
+     */
+    public static function checksum(string $class, string $stateJson): string
+    {
+        return Signer::sign(self::CHECKSUM_PURPOSE, $class . "\n" . $stateJson);
+    }
+
+    /**
      * @brief Casts raw incoming input value to match the declared property type.
      *
      * @param ReflectionProperty $property Target reflection property.
@@ -137,8 +176,9 @@ abstract class Component
     /**
      * @brief Renders the component HTML wrapped with synchronization metadata.
      *
-     * The wrapper carries the component class, its serialized public state and the session CSRF
-     * token used by frasm-live.js for the synchronization request.
+     * The wrapper carries the component class, its serialized public state, an HMAC checksum of
+     * that state (tampering is rejected by LiveComponentHandler) and the session CSRF token used by
+     * frasm-live.js for the synchronization request.
      *
      * @return string
      * @throws \JsonException If the state cannot be serialized.
@@ -147,7 +187,9 @@ abstract class Component
     public function render(): string
     {
         $state = $this->getState();
-        $stateJson = htmlspecialchars(json_encode($state, JSON_THROW_ON_ERROR), ENT_QUOTES, 'UTF-8');
+        $rawState = json_encode($state, JSON_THROW_ON_ERROR);
+        $stateJson = htmlspecialchars($rawState, ENT_QUOTES, 'UTF-8');
+        $checksum = self::checksum(static::class, $rawState);
         $componentClass = htmlspecialchars(static::class, ENT_QUOTES, 'UTF-8');
         $csrfToken = htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8');
 
@@ -162,6 +204,6 @@ abstract class Component
             throw $e;
         }
 
-        return "<div data-frasm-component=\"{$componentClass}\" data-frasm-state=\"{$stateJson}\" data-frasm-csrf=\"{$csrfToken}\">{$innerHtml}</div>";
+        return "<div data-frasm-component=\"{$componentClass}\" data-frasm-state=\"{$stateJson}\" data-frasm-checksum=\"{$checksum}\" data-frasm-csrf=\"{$csrfToken}\">{$innerHtml}</div>";
     }
 }

@@ -22,6 +22,8 @@ use ReflectionMethod;
  * @brief Re-hydrates a component from the client payload, applies updates, runs an action and re-renders it.
  *
  * The endpoint is protected by the global CsrfMiddleware (frasm-live.js sends X-CSRF-TOKEN).
+ * The previous state must carry a valid HMAC checksum (see Component::checksum()), so the client
+ * cannot forge it; client updates may only target public properties not marked #[Locked].
  * Only public, non-static methods declared by the concrete component (not by Core\View\Component),
  * without required parameters and not being lifecycle hooks, may be invoked as actions.
  */
@@ -44,12 +46,22 @@ class LiveComponentHandler extends BaseController
         }
 
         $componentClass = is_string($payload['component'] ?? null) ? $payload['component'] : '';
-        $state = is_array($payload['state'] ?? null) ? $payload['state'] : [];
+        $stateJson = is_string($payload['state'] ?? null) ? $payload['state'] : '';
+        $checksum = is_string($payload['checksum'] ?? null) ? $payload['checksum'] : '';
         $action = is_string($payload['action'] ?? null) ? $payload['action'] : null;
         $updates = is_array($payload['updates'] ?? null) ? $payload['updates'] : [];
 
         if ($componentClass === '' || !class_exists($componentClass) || !is_subclass_of($componentClass, Component::class)) {
             throw new CoreException("Invalid or unauthorized component target: '{$componentClass}'", 400);
+        }
+
+        if (!hash_equals(Component::checksum($componentClass, $stateJson), $checksum)) {
+            throw new CoreException("Component state checksum mismatch for '{$componentClass}' (tampered or stale state).", 400);
+        }
+
+        $state = json_decode($stateJson, true);
+        if (!is_array($state)) {
+            throw new CoreException("Malformed component state for '{$componentClass}'.", 400);
         }
 
         /** @var Component $component */
@@ -60,6 +72,7 @@ class LiveComponentHandler extends BaseController
 
         // 2. Hydration of incoming inputs (fires updated() hooks)
         if (!empty($updates)) {
+            $component->assertUpdatable($updates);
             $component->hydrate($updates, triggerHooks: true);
         }
 

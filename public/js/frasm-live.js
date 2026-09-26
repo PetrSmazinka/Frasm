@@ -57,7 +57,9 @@
 
         async function syncComponent(container, action, updates, triggerElement) {
             const component = container.getAttribute('data-frasm-component');
-            const state = JSON.parse(container.getAttribute('data-frasm-state'));
+            // Sent verbatim: the server verifies its HMAC checksum over the exact string
+            const state = container.getAttribute('data-frasm-state');
+            const checksum = container.getAttribute('data-frasm-checksum');
             const csrfMeta = document.querySelector('meta[name="csrf-token"]');
             const csrfToken = container.getAttribute('data-frasm-csrf') || (csrfMeta ? csrfMeta.getAttribute('content') : '');
 
@@ -78,7 +80,7 @@
                         'X-CSRF-TOKEN': csrfToken
                     },
                     credentials: 'same-origin',
-                    body: JSON.stringify({ component, state, action, updates })
+                    body: JSON.stringify({ component, state, checksum, action, updates })
                 });
 
                 if (!response.ok) {

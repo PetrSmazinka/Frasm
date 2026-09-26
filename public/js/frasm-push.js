@@ -5,13 +5,17 @@
  * API (window.Frasm.push):
  *   isSupported()      → boolean
  *   permission()       → 'default' | 'granted' | 'denied' | 'unsupported'
- *   subscribe()        → Promise<boolean>  (call from a user gesture, e.g. a button click)
+ *   subscribe({channels}) → Promise<boolean>  (call from a user gesture, e.g. a button click)
+ *   channels()         → Promise<{channels: string[], available: object}|null>
+ *   setChannels(list)  → Promise<string[]>
  *   unsubscribe()      → Promise<void>
  *   isSubscribed()     → Promise<boolean>
  *   sync()             → Promise<void>     (re-sends an existing subscription to the server)
  *
  * Reads configuration from meta tags emitted by frasm_head(): frasm-base, frasm-push-key,
- * frasm-push-sw and csrf-token. Existing subscriptions are synchronized on every page load.
+ * frasm-push-sw and csrf-token. Existing subscriptions are synchronized once per browser session.
+ * Push payloads forwarded by the service worker are dispatched as `frasm:push` events on document
+ * (event.detail = payload), e.g. to refresh data when a data-only message arrives.
  */
 (() => {
     'use strict';
@@ -36,8 +40,8 @@
     /**
      * @brief Sends a JSON request to the Frasm push endpoints with the CSRF token.
      */
-    const request = async (method, body) => {
-        const response = await fetch(endpoint(), {
+    const request = async (method, body, url = endpoint()) => {
+        const response = await fetch(url, {
             method,
             credentials: 'same-origin',
             headers: {
@@ -52,6 +56,12 @@
         if (!response.ok) {
             throw new Error(`Frasm push request failed with HTTP ${response.status}`);
         }
+        return response.status === 204 ? null : response.json();
+    };
+
+    const currentSubscription = async () => {
+        const reg = await navigator.serviceWorker.getRegistration(`${basePath()}/`);
+        return reg ? reg.pushManager.getSubscription() : null;
     };
 
     const registration = () =>
@@ -79,7 +89,7 @@
             return this.isSupported() ? Notification.permission : 'unsupported';
         },
 
-        async subscribe() {
+        async subscribe(options = {}) {
             if (!this.isSupported()) {
                 return false;
             }
@@ -100,8 +110,35 @@
                 });
             }
 
-            await request('POST', subscription.toJSON());
+            const body = subscription.toJSON();
+            if (Array.isArray(options.channels)) {
+                body.channels = options.channels;
+            }
+            await request('POST', body);
             return true;
+        },
+
+        async channels() {
+            const subscription = this.isSupported() ? await currentSubscription() : null;
+            if (!subscription) {
+                return null;
+            }
+
+            const response = await fetch(
+                `${basePath()}/_frasm/push/channels?endpoint=${encodeURIComponent(subscription.endpoint)}`,
+                { credentials: 'same-origin', headers: { Accept: 'application/json' } }
+            );
+            return response.ok ? response.json() : null;
+        },
+
+        async setChannels(channels) {
+            const subscription = this.isSupported() ? await currentSubscription() : null;
+            if (!subscription) {
+                throw new Error('Not subscribed to push notifications');
+            }
+
+            const result = await request('PUT', { endpoint: subscription.endpoint, channels }, `${basePath()}/_frasm/push/channels`);
+            return result.channels;
         },
 
         async unsubscribe() {
@@ -143,6 +180,15 @@
             }
         },
     };
+
+    // Forward payloads relayed by the service worker to the page
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data?.type === 'frasm:push') {
+                document.dispatchEvent(new CustomEvent('frasm:push', { detail: event.data.payload }));
+            }
+        });
+    }
 
     // Keep the server copy fresh (user may have logged in on this device); once per browser session
     const autoSync = async () => {

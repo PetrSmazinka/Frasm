@@ -7,6 +7,7 @@ namespace Core\Push;
 use Core\Config\Config;
 use Core\Exceptions\PushException;
 use Core\Logger\LoggerInterface;
+use Core\Queue\QueueInterface;
 
 /**
  * @file PushManager.php
@@ -15,14 +16,19 @@ use Core\Logger\LoggerInterface;
 
 /**
  * @class PushManager
- * @brief Sends notifications to users or all subscribers and keeps the subscription table clean.
+ * @brief Sends notifications synchronously or through the job queue and keeps subscriptions clean.
  *
- * Inject it into controllers/services:
  * @code
  * public function __construct(private PushManager $push) {}
- * $this->push->sendToUser($userId, new PushMessage('Door opened', 'Front door at 21:04', url: '/events'));
+ *
+ * // Immediately, inside the request (alarms, a few recipients)
+ * $this->push->send(new PushMessage('Alarm', 'Motion in the garage', url: '/cameras'), PushTarget::user($id));
+ *
+ * // Asynchronously via the queue worker (broadcasts, anything that may take long)
+ * $this->push->queue(new PushMessage('Daily report', ttl: 3600), PushTarget::channel('reports'));
  * @endcode
- * Expired subscriptions (404/410) are deleted and successful deliveries recorded in one query each.
+ *
+ * Expired subscriptions (404/410) are deleted and successful deliveries recorded with one query per batch.
  */
 class PushManager
 {
@@ -36,10 +42,12 @@ class PushManager
      *
      * @param SubscriptionRepository $subscriptions Subscription storage.
      * @param LoggerInterface $logger Logger for delivery failures.
+     * @param QueueInterface $queue Job queue for asynchronous delivery.
      */
     public function __construct(
         protected SubscriptionRepository $subscriptions,
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected QueueInterface $queue
     ) {
     }
 
@@ -74,49 +82,147 @@ class PushManager
     }
 
     /**
-     * @brief Sends a notification to all subscriptions of one user.
+     * @brief Returns the configured channels (name => label); empty means any valid channel name is accepted.
      *
-     * @param int|string $userId Recipient user id.
-     * @param PushMessage $message Notification.
-     * @return array{sent: int, failed: int, expired: int} Delivery summary.
-     * @throws PushException If push is disabled or misconfigured.
+     * @return array<string, string>
      */
-    public function sendToUser(int|string $userId, PushMessage $message): array
+    public static function channels(): array
     {
-        return $this->sendToUsers([$userId], $message);
+        return array_map('strval', (array)Config::get('push.channels', []));
     }
 
     /**
-     * @brief Sends a notification to all subscriptions of several users.
+     * @brief Validates channel names requested by a client against the configuration.
      *
-     * @param list<int|string> $userIds Recipient user ids.
-     * @param PushMessage $message Notification.
-     * @return array{sent: int, failed: int, expired: int} Delivery summary.
-     * @throws PushException If push is disabled or misconfigured.
+     * @param mixed $channels Client supplied value.
+     * @return list<string>
+     * @throws PushException 400 on invalid or unknown channels.
      */
-    public function sendToUsers(array $userIds, PushMessage $message): array
+    public static function validateChannels(mixed $channels): array
     {
-        return $this->deliver($this->subscriptions->findByUsers($userIds), $message);
+        if (!is_array($channels)) {
+            throw new PushException('Push channels must be a list of names.', 400);
+        }
+
+        $configured = self::channels();
+        $valid = [];
+
+        foreach ($channels as $channel) {
+            if (!is_string($channel)) {
+                throw new PushException('Push channel names must be strings.', 400);
+            }
+            PushTarget::assertChannel($channel);
+            if ($configured !== [] && !array_key_exists($channel, $configured)) {
+                throw new PushException("Unknown push channel '{$channel}'.", 400);
+            }
+            $valid[] = $channel;
+        }
+
+        return array_values(array_unique($valid));
     }
 
     /**
-     * @brief Sends a notification to every stored subscription (processed in batches).
+     * @brief Sends a message immediately (inside the current request).
      *
      * @param PushMessage $message Notification.
+     * @param PushTarget|Subscription|list<Subscription> $target Recipients.
      * @return array{sent: int, failed: int, expired: int} Delivery summary.
      * @throws PushException If push is disabled or misconfigured.
      */
-    public function broadcast(PushMessage $message): array
+    public function send(PushMessage $message, PushTarget|Subscription|array $target): array
     {
+        if (!$target instanceof PushTarget) {
+            return $this->deliver($target instanceof Subscription ? [$target] : array_values($target), $message);
+        }
+
         $summary = ['sent' => 0, 'failed' => 0, 'expired' => 0];
-
-        foreach ($this->subscriptions->batches() as $batch) {
+        foreach ($this->subscriptions->batches($target) as $batch) {
             foreach ($this->deliver($batch, $message) as $key => $count) {
                 $summary[$key] += $count;
             }
         }
 
         return $summary;
+    }
+
+    /**
+     * @brief Alias of send() emphasizing synchronous delivery.
+     *
+     * @param PushMessage $message Notification.
+     * @param PushTarget|Subscription|list<Subscription> $target Recipients.
+     * @return array{sent: int, failed: int, expired: int} Delivery summary.
+     * @throws PushException If push is disabled or misconfigured.
+     */
+    public function sendNow(PushMessage $message, PushTarget|Subscription|array $target): array
+    {
+        return $this->send($message, $target);
+    }
+
+    /**
+     * @brief Enqueues a message for the queue worker (returns within milliseconds).
+     *
+     * The message TTL counts from the moment the message becomes available (now + delay):
+     * if the worker picks it up later than that, it is dropped.
+     *
+     * @param PushMessage $message Notification.
+     * @param PushTarget $target Recipients.
+     * @param int $delay Seconds before the message may be sent.
+     * @return int Job id.
+     * @throws PushException If push is disabled.
+     */
+    public function queue(PushMessage $message, PushTarget $target, int $delay = 0): int
+    {
+        if (!self::isEnabled()) {
+            throw new PushException('Web Push is disabled (push.enabled = false).');
+        }
+
+        // Fail fast on payload problems instead of inside the worker
+        $message->toPayload();
+
+        return $this->queue->push(
+            new SendPushJob($message, $target, time() + max(0, $delay)),
+            $delay,
+            (string)Config::get('push.queue', 'default')
+        );
+    }
+
+    /**
+     * @brief Sends a notification to all subscriptions of one user (synchronously).
+     *
+     * @param int $userId Recipient user id.
+     * @param PushMessage $message Notification.
+     * @return array{sent: int, failed: int, expired: int} Delivery summary.
+     * @throws PushException If push is disabled or misconfigured.
+     */
+    public function sendToUser(int $userId, PushMessage $message): array
+    {
+        return $this->send($message, PushTarget::user($userId));
+    }
+
+    /**
+     * @brief Sends a notification to all subscriptions of several users (synchronously).
+     *
+     * @param list<int> $userIds Recipient user ids.
+     * @param PushMessage $message Notification.
+     * @return array{sent: int, failed: int, expired: int} Delivery summary.
+     * @throws PushException If push is disabled or misconfigured.
+     */
+    public function sendToUsers(array $userIds, PushMessage $message): array
+    {
+        return $this->send($message, PushTarget::users($userIds));
+    }
+
+    /**
+     * @brief Sends a notification to every subscription, optionally of one channel (synchronously).
+     *
+     * @param PushMessage $message Notification.
+     * @param string|null $channel Channel filter.
+     * @return array{sent: int, failed: int, expired: int} Delivery summary.
+     * @throws PushException If push is disabled or misconfigured.
+     */
+    public function broadcast(PushMessage $message, ?string $channel = null): array
+    {
+        return $this->send($message, $channel === null ? PushTarget::all() : PushTarget::channel($channel));
     }
 
     /**

@@ -15,6 +15,7 @@ use Core\Routing\Attributes\Delete;
 use Core\Routing\Attributes\Get;
 use Core\Routing\Attributes\Middleware;
 use Core\Routing\Attributes\Post;
+use Core\Routing\Attributes\Put;
 
 /**
  * @file PushController.php
@@ -23,7 +24,7 @@ use Core\Routing\Attributes\Post;
 
 /**
  * @class PushController
- * @brief Exposes the VAPID public key and stores/removes push subscriptions.
+ * @brief Exposes the VAPID public key, stores/removes push subscriptions and manages their channels.
  *
  * All endpoints respond 404 while `push.enabled` is false. Write endpoints are protected by the
  * global CsrfMiddleware and throttled; with `push.require_auth` subscriptions are bound to the
@@ -57,8 +58,11 @@ class PushController extends BaseController
     /**
      * @brief Stores (or refreshes) the browser's subscription.
      *
+     * The body is PushSubscription.toJSON() optionally extended with "channels": [...]. Without it,
+     * a new subscription joins `push.default_channels` and an existing one keeps its channels.
+     *
      * @param Request $request Current request with PushSubscription JSON body.
-     * @return Response 201 {"subscribed": true}.
+     * @return Response 201 {"subscribed": true, "channels": [...]}.
      * @throws RouteNotFoundException When push is disabled.
      * @throws AuthException 401 when authentication is required.
      * @throws \Core\Exceptions\PushException 400 on invalid subscription data.
@@ -70,15 +74,27 @@ class PushController extends BaseController
         $this->ensureEnabled();
         $userId = $this->resolveUserId();
 
-        $subscription = Subscription::fromBrowser($request->json(), PushManager::allowedHosts());
-        $this->subscriptions->save(
+        $body = $request->json();
+        $subscription = Subscription::fromBrowser($body, PushManager::allowedHosts());
+        $channels = is_array($body) && array_key_exists('channels', $body)
+            ? PushManager::validateChannels($body['channels'])
+            : null;
+
+        $saved = $this->subscriptions->save(
             $subscription,
             $userId,
             $request->header('User-Agent'),
             (int)Config::get('push.max_subscriptions_per_user', 10)
         );
 
-        return Response::json(['subscribed' => true], 201);
+        if ($channels === null && $saved['created']) {
+            $channels = PushManager::validateChannels((array)Config::get('push.default_channels', []));
+        }
+        if ($channels !== null) {
+            $this->subscriptions->setChannels($saved['id'], $channels);
+        }
+
+        return Response::json(['subscribed' => true, 'channels' => $this->subscriptions->channelsOf($saved['id'])], 201);
     }
 
     /**
@@ -104,6 +120,70 @@ class PushController extends BaseController
         }
 
         return Response::noContent();
+    }
+
+    /**
+     * @brief Returns the channels of the browser's subscription and the configured channel labels.
+     *
+     * @param Request $request Current request with ?endpoint=... query parameter.
+     * @return Response JSON {"channels": [...], "available": {name: label}}.
+     * @throws RouteNotFoundException When push is disabled or the subscription is unknown.
+     * @throws AuthException 401/403 when not allowed.
+     */
+    #[Get('/_frasm/push/channels')]
+    public function channels(Request $request): Response
+    {
+        $this->ensureEnabled();
+        $subscriptionId = $this->ownedSubscriptionId($request->query('endpoint'));
+
+        return Response::json([
+            'channels'  => $this->subscriptions->channelsOf($subscriptionId),
+            'available' => (object)PushManager::channels(),
+        ]);
+    }
+
+    /**
+     * @brief Replaces the channels of the browser's subscription.
+     *
+     * @param Request $request Current request with {"endpoint": "...", "channels": [...]} body.
+     * @return Response JSON {"channels": [...]}.
+     * @throws RouteNotFoundException When push is disabled or the subscription is unknown.
+     * @throws AuthException 401/403 when not allowed.
+     * @throws \Core\Exceptions\PushException 400 on invalid channels.
+     */
+    #[Put('/_frasm/push/channels')]
+    #[Middleware('throttle:20,60')]
+    public function updateChannels(Request $request): Response
+    {
+        $this->ensureEnabled();
+        $subscriptionId = $this->ownedSubscriptionId($request->input('endpoint'));
+
+        $this->subscriptions->setChannels($subscriptionId, PushManager::validateChannels($request->input('channels', [])));
+
+        return Response::json(['channels' => $this->subscriptions->channelsOf($subscriptionId)]);
+    }
+
+    /**
+     * @brief Resolves a subscription by endpoint and verifies it belongs to the current user.
+     *
+     * @param mixed $endpoint Endpoint URL from the client.
+     * @return int Subscription id.
+     * @throws RouteNotFoundException When the subscription does not exist.
+     * @throws AuthException 401 when authentication is required, 403 for a foreign subscription.
+     */
+    protected function ownedSubscriptionId(mixed $endpoint): int
+    {
+        $userId = $this->resolveUserId();
+        $record = is_string($endpoint) && $endpoint !== '' ? $this->subscriptions->findByEndpoint($endpoint) : null;
+
+        if ($record === null) {
+            throw new RouteNotFoundException('Unknown push subscription.', 404);
+        }
+        if ($record['user_id'] !== null && (string)$record['user_id'] !== (string)$userId) {
+            throw new AuthException('This push subscription belongs to another user.', 403);
+        }
+
+        return $record['id'];
     }
 
     /**

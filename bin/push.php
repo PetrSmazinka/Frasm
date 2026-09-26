@@ -8,18 +8,30 @@ declare(strict_types=1);
  *
  * Usage:
  *   php bin/push.php vapid
- *   php bin/push.php send <user_id> <title> [body] [url]
- *   php bin/push.php broadcast <title> [body] [url]
+ *   php bin/push.php send <user_id> <title> [body] [url] [--queue]
+ *   php bin/push.php broadcast <title> [body] [url] [--channel=name] [--queue]
  */
 
 use Core\Container\Container;
 use Core\Push\PushManager;
 use Core\Push\PushMessage;
+use Core\Push\PushTarget;
 use Core\Push\Vapid;
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 $action = $argv[1] ?? 'help';
+
+// Split positional arguments from --options
+$positional = [];
+$options = [];
+foreach (array_slice($argv, 1) as $argument) {
+    if (preg_match('/^--([a-z-]+)(?:=(.*))?$/', $argument, $matches)) {
+        $options[$matches[1]] = $matches[2] ?? true;
+    } else {
+        $positional[] = $argument;
+    }
+}
 
 try {
     switch ($action) {
@@ -40,25 +52,31 @@ try {
         case 'send':
         case 'broadcast':
             $isSend = $action === 'send';
-            $userId = $isSend ? ($argv[2] ?? null) : null;
-            $title = $argv[$isSend ? 3 : 2] ?? null;
+            $userId = $isSend ? ($positional[1] ?? null) : null;
+            $offset = $isSend ? 2 : 1;
+            $title = $positional[$offset] ?? null;
 
             if (($isSend && ($userId === null || !ctype_digit($userId))) || $title === null) {
-                echo "Usage: php bin/push.php send <user_id> <title> [body] [url]\n";
-                echo "       php bin/push.php broadcast <title> [body] [url]\n";
+                echo "Usage: php bin/push.php send <user_id> <title> [body] [url] [--queue]\n";
+                echo "       php bin/push.php broadcast <title> [body] [url] [--channel=name] [--queue]\n";
                 exit(1);
             }
 
-            $message = new PushMessage(
-                $title,
-                $argv[$isSend ? 4 : 3] ?? '',
-                $argv[$isSend ? 5 : 4] ?? null
-            );
+            $message = new PushMessage($title, $positional[$offset + 1] ?? '', $positional[$offset + 2] ?? null);
+            $target = $isSend ? PushTarget::user((int)$userId) : PushTarget::all();
+            if (isset($options['channel']) && is_string($options['channel'])) {
+                $target = $target->inChannel($options['channel']);
+            }
 
             /** @var PushManager $push */
             $push = Container::getInstance()->get(PushManager::class);
-            $summary = $isSend ? $push->sendToUser((int)$userId, $message) : $push->broadcast($message);
 
+            if (isset($options['queue'])) {
+                echo "✔ Queued as job #" . $push->queue($message, $target) . " (run `php bin/queue.php work --once`).\n";
+                break;
+            }
+
+            $summary = $push->send($message, $target);
             echo "✔ Sent: {$summary['sent']}, failed: {$summary['failed']}, expired (removed): {$summary['expired']}\n";
             break;
 
@@ -67,8 +85,8 @@ try {
             echo "-------------------\n";
             echo "Commands:\n";
             echo "  vapid                                   Generate a VAPID key pair\n";
-            echo "  send <user_id> <title> [body] [url]     Notify all devices of a user\n";
-            echo "  broadcast <title> [body] [url]          Notify every subscriber\n";
+            echo "  send <user_id> <title> [body] [url] [--queue]                   Notify all devices of a user\n";
+            echo "  broadcast <title> [body] [url] [--channel=name] [--queue]       Notify every (channel) subscriber\n";
             exit(0);
     }
 } catch (\Throwable $e) {

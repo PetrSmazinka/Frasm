@@ -136,6 +136,19 @@ class Response
     }
 
     /**
+     * @brief Creates a Server-Sent Events response.
+     *
+     * @param callable(EventStream): void $producer Callback emitting events; the stream ends when it returns.
+     * @param int|null $maxDuration Stream duration in seconds (null = `sse.max_duration`).
+     * @param string|null $lastEventId Last-Event-ID request header (for resuming).
+     * @return EventStreamResponse
+     */
+    public static function eventStream(callable $producer, ?int $maxDuration = null, ?string $lastEventId = null): EventStreamResponse
+    {
+        return new EventStreamResponse($producer, $maxDuration, $lastEventId);
+    }
+
+    /**
      * @brief Returns the standard reason phrase for a status code.
      *
      * @param int $status HTTP status code.
