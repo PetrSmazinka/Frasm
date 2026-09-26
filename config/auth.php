@@ -37,7 +37,7 @@ return [
         'name'        => 'System Administrator',
         'username'    => 'admin',
         'email'       => 'admin@example.com',
-        'password'    => 'admin1234',
+        'password'    => '', // set in config/local.php (the installer generates a random one)
         'permissions' => 'smarthome.admin,blog.admin',
     ],
 ];

@@ -1,0 +1,4 @@
+# Secrets and runtime data of a Frasm application
+/config/local.php
+/storage/*
+!/storage/.gitkeep

@@ -6,12 +6,13 @@ PORT      := 8000
 HOST      := 127.0.0.1
 PUBLIC_DIR := public
 
-.PHONY: help serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid key queue-work queue-stats logs-archive
+.PHONY: help update serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid key queue-work queue-stats logs-archive
 
 # Default target: display help
 help:
 	@echo "Available commands:"
 	@echo "  make serve       Start local PHP development server (http://$(HOST):$(PORT))"
+	@echo "  make update      Update framework files (REF=<tag|branch>, default master; MIGRATE=1 runs migrations)"
 	@echo "  make migrate     Run all pending database migrations"
 	@echo "  make rollback    Rollback the latest migration batch"
 	@echo "  make reset       Wipe database and re-run all migrations"
@@ -97,3 +98,10 @@ queue-stats:
 # -----------------------------------------------------------------------------
 logs-archive:
 	@$(PHP) bin/logs.php archive
+
+# -----------------------------------------------------------------------------
+# Framework update (downloads REF and replaces framework files only)
+# -----------------------------------------------------------------------------
+REF ?= master
+update:
+	@./install.sh --update --ref $(REF) $(if $(MIGRATE),--migrate,) .

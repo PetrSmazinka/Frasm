@@ -1,0 +1,31 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Local (per-server) configuration overriding config/*.php.
+ * Never commit this file: it contains secrets.
+ */
+return [
+    'app' => [
+        'debug' => false,
+        'key'   => '__APP_KEY__',
+    ],
+
+    'database' => [
+        'connections' => [
+            'mysql' => [
+                'host'     => 'localhost',
+                'database' => 'frasm',
+                'username' => '',
+                'password' => '',
+            ],
+        ],
+    ],
+
+    'auth' => [
+        'default_admin' => [
+            'password' => '__ADMIN_PASSWORD__',
+        ],
+    ],
+];
