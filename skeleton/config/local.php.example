@@ -23,6 +23,11 @@ return [
         ],
     ],
 
+    // Scheduler for #[Schedule] tasks: the installer adds/removes the cron entry accordingly
+    'scheduler' => [
+        'enabled' => __SCHEDULER_ENABLED__,
+    ],
+
     // Installable web app: set a name and an icon, then run `php bin/frasm pwa:build`
     'pwa' => [
         'enabled' => __PWA_ENABLED__,

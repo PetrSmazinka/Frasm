@@ -55,6 +55,7 @@ Installer options:
 | `--ref <tag>` | Install a specific version (branch or tag, default `master`; use a tag in production) |
 | `--no-example` | Create an empty application instead of the Hello world example |
 | `--pwa` | Make the site installable as an app (manifest, icons, service worker) |
+| `--scheduler` | Enable `#[Schedule]` tasks (the cron entry is managed for you) |
 | `--web-user <group>` | Group of the web server that needs access to `storage/` (default `www-data`) |
 
 ### Apache
@@ -265,6 +266,36 @@ make pwa:build ARGS=--force   # after changing the icon or colors
 `frasm_head()` then links the manifest and registers the service worker, so browsers offer to install
 the site. On iPhone, Web Push notifications only work in an installed web app.
 
+### Scheduled tasks
+
+Mark a controller action (or a method of a class in `app/Tasks`) with `#[Schedule]`:
+
+```php
+use Core\Scheduling\Schedule;
+
+#[Post('/reports/sync')]
+#[Authorize('admin')]
+#[Schedule(everyMinutes: 15)]                 // or: #[Schedule(cron: '0 7 * * 1-5')]
+public function sync(Request $request, ReportSync $sync): Response
+{
+    $sync->run();
+    return $request->isScheduled() ? Response::noContent() : Response::redirect('/reports');
+}
+```
+
+The action then runs automatically and stays available at its endpoint. Manual and automatic runs share a
+lock, so they never overlap; a manual run also resets the interval.
+
+The scheduler is off by default. Enable it in `config/local.php` (or install with `--scheduler`):
+
+```php
+'scheduler' => ['enabled' => true],
+```
+
+The installer then adds the cron entry for you on every install and `make update` (and removes it when
+the scheduler is disabled); to apply a change right away, run `make schedule:cron`. `make schedule:list`
+shows every task with its last run, status and trigger.
+
 ### Job queue
 
 ```php
@@ -295,6 +326,7 @@ make db:reset ARGS=--help                        # help for one command
 | `migrate`, `seed`, `fresh`, `db:rollback`, `db:reset` | Database schema and administrator account |
 | `routes`, `cache`, `route:clear` | Route table and route cache |
 | `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
+| `schedule:list`, `schedule:run`, `schedule:cron` | Scheduled tasks (`#[Schedule]`) and their cron entry |
 | `push:vapid`, `push:send` | Web Push |
 | `pwa:build` | Web app manifest and icons |
 | `key:generate`, `token:create` | Application key, API tokens |

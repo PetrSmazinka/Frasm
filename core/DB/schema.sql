@@ -35,6 +35,18 @@ CREATE TABLE IF NOT EXISTS `frasm_jobs` (
     KEY `idx_queue_pick` (`queue`, `failed_at`, `available_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `frasm_scheduled_tasks` (
+    `task` VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `locked_until` DATETIME NULL,
+    `last_started_at` DATETIME NULL,
+    `last_finished_at` DATETIME NULL,
+    `last_status` VARCHAR(16) NULL,
+    `last_error` TEXT NULL,
+    `last_duration_ms` INT UNSIGNED NULL,
+    `last_trigger` VARCHAR(16) NULL,
+    PRIMARY KEY (`task`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- @module auth
 
 CREATE TABLE IF NOT EXISTS `frasm_users` (

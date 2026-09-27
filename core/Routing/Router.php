@@ -12,6 +12,7 @@ use Core\Exceptions\MethodNotAllowedException;
 use Core\Exceptions\RouteNotFoundException;
 use Core\Http\CallableHandler;
 use Core\Http\Middleware\AuthorizeMiddleware;
+use Core\Http\Middleware\TaskLockMiddleware;
 use Core\Http\Middleware\MiddlewareResolver;
 use Core\Http\Middleware\Pipeline;
 use Core\Http\Request;
@@ -19,6 +20,8 @@ use Core\Http\Response;
 use Core\Routing\Attributes\Authorize;
 use Core\Routing\Attributes\Middleware as MiddlewareAttribute;
 use Core\Routing\Attributes\Route as RouteAttribute;
+use Core\Scheduling\Schedule;
+use Core\Scheduling\ScheduledTask;
 use JsonSerializable;
 use ReflectionAttribute;
 use ReflectionClass;
@@ -248,6 +251,13 @@ class Router
                 $classMiddleware,
                 $this->collectMiddleware($method->getAttributes(MiddlewareAttribute::class))
             );
+
+            // A scheduled action shares its lock with the scheduler (see TaskLockMiddleware)
+            $scheduleAttributes = $method->getAttributes(Schedule::class);
+            if ($scheduleAttributes !== []) {
+                $middleware[] = TaskLockMiddleware::class . ':' . ScheduledTask::keyFor($controllerClass, $method->getName())
+                    . ',' . $scheduleAttributes[0]->newInstance()->timeout;
+            }
 
             foreach ($routeAttributes as $attribute) {
                 /** @var RouteAttribute $instance */

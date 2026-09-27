@@ -27,6 +27,7 @@ return [
         'auth'     => \Core\Http\Middleware\AuthorizeMiddleware::class,
         'throttle' => \Core\Http\Middleware\RateLimitMiddleware::class,
         'csrf'     => \Core\Http\Middleware\CsrfMiddleware::class,
+        'task'     => \Core\Http\Middleware\TaskLockMiddleware::class,
     ],
 
     /*

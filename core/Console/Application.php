@@ -38,6 +38,9 @@ final class Application
         Commands\RouteListCommand::class,
         Commands\RouteCacheCommand::class,
         Commands\RouteClearCommand::class,
+        Commands\ScheduleRunCommand::class,
+        Commands\ScheduleListCommand::class,
+        Commands\ScheduleCronCommand::class,
         Commands\QueueWorkCommand::class,
         Commands\QueueStatsCommand::class,
         Commands\QueueFailedCommand::class,
@@ -65,6 +68,7 @@ final class Application
         'pwa'   => 'Web App (PWA)',
         'queue' => 'Queue',
         'route' => 'Routing',
+        'schedule' => 'Scheduler',
         'user'  => 'Users',
     ];
 

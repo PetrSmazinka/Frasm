@@ -28,6 +28,11 @@ class Request
     protected const OVERRIDABLE_METHODS = ['PUT', 'PATCH', 'DELETE'];
 
     /**
+     * @var string Attribute set on requests created by the scheduler for #[Schedule] runs.
+     */
+    public const SCHEDULED_ATTRIBUTE = 'frasm.scheduled';
+
+    /**
      * @var array<string, string> Normalized request headers (lowercase name => value).
      */
     protected array $headers;
@@ -499,6 +504,16 @@ class Request
     public function isPrefetch(): bool
     {
         return $this->header('X-Frasm-Prefetch') === '1';
+    }
+
+    /**
+     * @brief Checks whether the action runs from the scheduler (#[Schedule]) instead of an HTTP request.
+     *
+     * @return bool
+     */
+    public function isScheduled(): bool
+    {
+        return $this->getAttribute(self::SCHEDULED_ATTRIBUTE) === true;
     }
 
     /**

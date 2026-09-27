@@ -9,7 +9,7 @@ declare(strict_types=1);
  * Runs from a downloaded copy of the framework (see install.sh), never from the target itself.
  *
  * Usage:
- *   php bin/install.php --target=/var/www/app [--no-example] [--pwa] [--web-user=www-data]
+ *   php bin/install.php --target=/var/www/app [--no-example] [--pwa] [--scheduler] [--web-user=www-data]
  *   php bin/install.php --target=/var/www/app --update [--migrate] [--web-user=www-data]
  *   (--web-user names the web server group that gets access to storage/ and config/local.php)
  *   Optional: --ref=<branch|tag> --commit=<sha> (recorded in .frasm-version)
@@ -226,9 +226,10 @@ function replaceFile(string $source, string $target): void
  * @param string $source Framework source directory.
  * @param string $target Project directory.
  * @param bool $pwa Enable the installable web app.
+ * @param bool $scheduler Enable the scheduler (cron entry).
  * @return string|null Generated admin password, or null when local.php already existed.
  */
-function createLocalConfig(string $source, string $target, bool $pwa = false): ?string
+function createLocalConfig(string $source, string $target, bool $pwa = false, bool $scheduler = false): ?string
 {
     $file = $target . '/config/local.php';
     if (is_file($file)) {
@@ -245,6 +246,7 @@ function createLocalConfig(string $source, string $target, bool $pwa = false): ?
         '__APP_KEY__'        => 'base64:' . base64_encode(random_bytes(32)),
         '__ADMIN_PASSWORD__' => $password,
         '__PWA_ENABLED__'    => $pwa ? 'true' : 'false',
+        '__SCHEDULER_ENABLED__' => $scheduler ? 'true' : 'false',
     ]);
 
     if (file_put_contents($file, $content) === false) {
@@ -490,7 +492,7 @@ function main(array $argv): void
         }
         copyDirectory("{$source}/skeleton/database", "{$target}/database");
         copy("{$source}/skeleton/gitignore", "{$target}/.gitignore");
-        $adminPassword = createLocalConfig($source, $target, isset($options['pwa']));
+        $adminPassword = createLocalConfig($source, $target, isset($options['pwa']), isset($options['scheduler']));
         console()->success('Project structure created' . (isset($options['no-example']) ? '' : ' with the Hello world application'));
         console()->success('config/local.php created with a new app key');
     }
@@ -536,7 +538,15 @@ function main(array $argv): void
         }
     }
 
-    // 6. Post-update tasks
+    // 6. Scheduler: add or remove the cron entry according to scheduler.enabled
+    //    (root installs manage the web server user's crontab, others their own)
+    $cronUser = posix_geteuid() === 0 ? ' --user=' . escapeshellarg($webUser) : '';
+    passthru("{$frasm} schedule:cron{$cronUser}", $cronStatus);
+    if ($cronStatus !== 0) {
+        $steps[] = ['Install the scheduler cron entry:', ["cd {$target} && php bin/frasm schedule:cron"]];
+    }
+
+    // 7. Post-update tasks
     if ($update) {
         passthru("{$frasm} route:clear");
         if (isset($options['migrate'])) {
