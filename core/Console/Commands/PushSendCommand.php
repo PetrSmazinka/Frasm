@@ -7,6 +7,7 @@ namespace Core\Console\Commands;
 use Core\Console\Command;
 use Core\Console\Input;
 use Core\Console\Output;
+use Core\Exceptions\PushException;
 use Core\Push\PushManager;
 use Core\Push\PushMessage;
 use Core\Push\PushTarget;
@@ -56,13 +57,38 @@ final class PushSendCommand extends Command
     public function options(): array
     {
         return [
-            'user='    => 'Recipient user id',
-            'all'      => 'Send to every subscriber (required when --user is omitted)',
-            'channel=' => 'Only subscriptions that joined this channel',
-            'body='    => 'Notification text',
-            'url='     => 'Page opened on click',
-            'queue'    => 'Enqueue instead of sending now (processed by queue:work)',
+            'user='     => 'Recipient user id',
+            'all'       => 'Send to every subscriber (required when --user is omitted)',
+            'channel='  => 'Only subscriptions that joined this channel',
+            'body='     => 'Notification text',
+            'url='      => 'Page opened on click',
+            'icon='     => 'Icon next to the text (default: push.icon)',
+            'image='    => 'Large picture in the expanded notification',
+            'badge='    => 'Small monochrome status bar symbol (default: push.badge)',
+            'tag='      => 'Replace an earlier notification with the same tag',
+            'action=*'  => 'Action button "id|Title|/page" or "id|Title|post:/path" (repeatable)',
+            'ttl='      => 'Seconds the push service keeps the message for offline devices',
+            'urgency='  => 'very-low, low, normal or high',
+            'queue'     => 'Enqueue instead of sending now (processed by queue:work)',
         ];
+    }
+
+    /**
+     * @brief Returns usage examples.
+     *
+     * @return string
+     */
+    public function help(): string
+    {
+        return "Examples:\n"
+            . "  php bin/frasm push:send \"Hello\" --user=1 --body=\"Test message\" --url=/\n"
+            . "  php bin/frasm push:send \"Gate open\" --user=1 --image=/img/gate.jpg \\\n"
+            . "      --action=\"camera|Camera|/camera\" --action=\"close|Close|post:/api/gate/close\"\n"
+            . "  php bin/frasm push:send \"Report\" --all --channel=reports --queue\n"
+            . "\n"
+            . "Buttons: url actions open the page, post: actions send a background POST authorized by a\n"
+            . "signed token (read it in the controller as \$request->getAttribute('push_action')).\n"
+            . "Buttons and images are shown by Chromium-based browsers; others show the plain notification.";
     }
 
     /**
@@ -90,7 +116,26 @@ final class PushSendCommand extends Command
             $target = $target->inChannel($channel);
         }
 
-        $message = new PushMessage((string)$input->argument('title'), $input->option('body', ''), $input->option('url'));
+        try {
+            $message = new PushMessage(
+                (string)$input->argument('title'),
+                $input->option('body', ''),
+                url: $input->option('url'),
+                icon: $input->option('icon'),
+                tag: $input->option('tag'),
+                ttl: $input->option('ttl') === null ? null : $input->intOption('ttl', 0),
+                urgency: $input->option('urgency'),
+                options: array_filter([
+                    'image' => $input->option('image'),
+                    'badge' => $input->option('badge'),
+                ], fn(?string $value): bool => $value !== null),
+                actions: array_map([$this, 'parseAction'], $input->optionList('action')),
+            );
+            $message->toPayload();
+        } catch (PushException $e) {
+            $output->error($e->getMessage());
+            return 1;
+        }
 
         if ($input->flag('queue')) {
             $output->success('Queued as job #' . $this->push->queue($message, $target));
@@ -99,7 +144,31 @@ final class PushSendCommand extends Command
 
         $summary = $this->push->send($message, $target);
         $output->success("Sent: {$summary['sent']}, failed: {$summary['failed']}, expired (removed): {$summary['expired']}");
+        if ($summary['sent'] + $summary['failed'] + $summary['expired'] === 0) {
+            $output->warning('No matching subscriptions: the recipient has not enabled notifications in a browser yet.');
+        }
 
         return $summary['failed'] > 0 ? 1 : 0;
+    }
+
+    /**
+     * @brief Converts "id|Title|/page" or "id|Title|post:/path" into an action definition.
+     *
+     * @param string $definition Action definition from --action.
+     * @return array{action: string, title: string, url?: string, post?: string}
+     * @throws PushException On a malformed definition (paths are validated by PushMessage).
+     */
+    private function parseAction(string $definition): array
+    {
+        $parts = explode('|', $definition, 3);
+        if (count($parts) !== 3 || trim($parts[0]) === '' || trim($parts[1]) === '' || trim($parts[2]) === '') {
+            throw new PushException("Invalid --action '{$definition}': expected \"id|Title|/page\" or \"id|Title|post:/path\".");
+        }
+
+        [$id, $title, $target] = array_map('trim', $parts);
+
+        return str_starts_with($target, 'post:')
+            ? ['action' => $id, 'title' => $title, 'post' => substr($target, 5)]
+            : ['action' => $id, 'title' => $title, 'url' => $target];
     }
 }

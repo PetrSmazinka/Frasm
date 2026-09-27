@@ -54,6 +54,7 @@ Installer options:
 |---|---|
 | `--ref <tag>` | Install a specific version (branch or tag, default `master`; use a tag in production) |
 | `--no-example` | Create an empty application instead of the Hello world example |
+| `--pwa` | Make the site installable as an app (manifest, icons, service worker) |
 | `--web-user <group>` | Group of the web server that needs access to `storage/` (default `www-data`) |
 
 ### Apache
@@ -211,13 +212,58 @@ public function stream(): Response
 make push:vapid    # prints the keys for config/local.php
 ```
 
+Set a default icon for all notifications in `config/local.php` (`'push' => ['icon' => '/icon.png']`), then send
+from code:
+
 ```php
 // Immediately, or through the queue worker
 $push->send(new PushMessage('Door opened', 'Front door at 21:04', url: '/cameras'), PushTarget::user($id));
 $push->queue(new PushMessage('Daily report', ttl: 3600), PushTarget::channel('reports'));
+
+// Picture and action buttons: "url" opens a page, "post" calls your endpoint in the background
+$push->send(new PushMessage(
+    'Gate open',
+    'The gate has been open for 10 minutes.',
+    options: ['image' => '/img/gate.jpg'],
+    actions: [
+        ['action' => 'camera', 'title' => 'Camera', 'url' => '/camera'],
+        ['action' => 'close', 'title' => 'Close', 'post' => '/api/gate/close'],
+    ],
+), PushTarget::user($id));
 ```
 
+or from the command line:
+
+```bash
+make push:send ARGS='"Gate open" --user=1 --image=/img/gate.jpg --action="camera|Camera|/camera" --action="close|Close|post:/api/gate/close"'
+```
+
+A `post` action reaches your controller with a signed token instead of a CSRF token; the pressed button is
+available as `$request->getAttribute('push_action')`. Action buttons and large images are shown by
+Chromium-based browsers; others display the plain notification.
+
 In the browser, call `Frasm.push.subscribe()` from a button click.
+
+### Installable web app (PWA)
+
+Enable it in `config/local.php` and generate the manifest and icons:
+
+```php
+'pwa' => [
+    'enabled'    => true,
+    'name'       => 'My Application',
+    'short_name' => 'MyApp',
+    'icon'       => 'public/logo.png',   // square image, at least 512×512 px
+],
+```
+
+```bash
+make pwa:build            # writes public/manifest.webmanifest and public/icons/* (needs the PHP GD extension)
+make pwa:build ARGS=--force   # after changing the icon or colors
+```
+
+`frasm_head()` then links the manifest and registers the service worker, so browsers offer to install
+the site. On iPhone, Web Push notifications only work in an installed web app.
 
 ### Job queue
 
@@ -250,6 +296,7 @@ make db:reset ARGS=--help                        # help for one command
 | `routes`, `cache`, `route:clear` | Route table and route cache |
 | `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
 | `push:vapid`, `push:send` | Web Push |
+| `pwa:build` | Web app manifest and icons |
 | `key:generate`, `token:create` | Application key, API tokens |
 | `user:password` | Set a user's password (asked without echo, or `--generate`) |
 | `logs:archive`, `prune` | Maintenance |

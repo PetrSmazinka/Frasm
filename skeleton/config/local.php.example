@@ -23,6 +23,11 @@ return [
         ],
     ],
 
+    // Installable web app: set a name and an icon, then run `php bin/frasm pwa:build`
+    'pwa' => [
+        'enabled' => __PWA_ENABLED__,
+    ],
+
     'auth' => [
         'default_admin' => [
             'password' => '__ADMIN_PASSWORD__',

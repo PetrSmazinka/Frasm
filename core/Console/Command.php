@@ -54,7 +54,7 @@ abstract class Command
     /**
      * @brief Declares options.
      *
-     * @return array<string, string> Name (suffix '=' = takes a value) => description.
+     * @return array<string, string> Name (suffix '=' = takes a value, '=*' = repeatable value) => description.
      */
     public function options(): array
     {

@@ -24,6 +24,8 @@ use Core\Exceptions\PushException;
  * ['action' => 'close', 'title' => 'Zavřít', 'post' => '/api/garage/close'] sends a background POST
  * from the service worker, authorized by a signed PushAction token instead of a CSRF token.
  *
+ * Messages without an icon or badge use the defaults `push.icon` and `push.badge` from the configuration.
+ *
  * Data-only messages are forwarded to open tabs (`frasm:push` event); browsers require every push
  * to be user visible, so a notification with the title is still shown when no tab is visible.
  */
@@ -154,6 +156,7 @@ final class PushMessage
      * @brief Serializes the notification into the JSON payload understood by frasm-sw.js.
      *
      * Background POST actions receive a signed token valid for `push.action_token_ttl` seconds.
+     * A missing icon or badge is filled in from `push.icon` / `push.badge`.
      *
      * @return string
      * @throws PushException If the payload exceeds the Web Push size limit.
@@ -182,12 +185,16 @@ final class PushMessage
             }
         }
 
+        $defaults = array_filter([
+            'badge' => Config::get('push.badge'),
+        ], fn(mixed $value): bool => is_string($value) && $value !== '');
+
         $payload = array_filter(
-            $this->options + [
+            $this->options + $defaults + [
                 'title'        => $this->title,
                 'body'         => $this->body,
                 'url'          => $this->url,
-                'icon'         => $this->icon,
+                'icon'         => $this->icon ?? (is_string(Config::get('push.icon')) ? Config::get('push.icon') : null),
                 'tag'          => $this->tag,
                 'data'         => $this->data === [] ? null : $this->data,
                 'actions'      => $buttons === [] ? null : $buttons,

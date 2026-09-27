@@ -38,6 +38,6 @@ return [
         'username'    => 'admin',
         'email'       => 'admin@example.com',
         'password'    => '', // set in config/local.php (the installer generates a random one)
-        'permissions' => 'smarthome.admin,blog.admin',
+        'permissions' => '',
     ],
 ];

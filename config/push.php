@@ -34,6 +34,11 @@ return [
     'concurrency' => 10,
     'timeout'     => 10,
 
+    // Default images of every notification that does not set its own (URLs or paths, e.g. '/icon.png'):
+    // icon = picture next to the text, badge = small monochrome symbol in the Android status bar
+    'icon'  => null,
+    'badge' => null,
+
     // Channels subscribers can opt into (name => label for the UI); empty = any valid name accepted
     'channels' => [
         // 'alarms'  => 'Alarms',

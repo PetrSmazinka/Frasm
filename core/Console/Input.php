@@ -21,7 +21,7 @@ final class Input
      * @brief Input constructor.
      *
      * @param array<string, string> $arguments Positional arguments by name.
-     * @param array<string, string|bool> $options Options by name (true for flags).
+     * @param array<string, string|bool|list<string>> $options Options by name (true for flags, list for repeatable options).
      */
     public function __construct(
         private readonly array $arguments,
@@ -34,7 +34,7 @@ final class Input
      *
      * @param list<string> $tokens Tokens after the command name.
      * @param array<string, string> $argumentDefinitions Argument name (suffix '?' = optional) => description.
-     * @param array<string, string> $optionDefinitions Option name (suffix '=' = takes a value) => description.
+     * @param array<string, string> $optionDefinitions Option name (suffix '=' = takes a value, '=*' = repeatable value) => description.
      * @return self
      * @throws CoreException On unknown options, missing values or missing required arguments.
      */
@@ -42,8 +42,15 @@ final class Input
     {
         $flags = [];
         $valued = [];
+        $repeatable = [];
         foreach (array_keys($optionDefinitions) as $definition) {
-            str_ends_with($definition, '=') ? $valued[rtrim($definition, '=')] = true : $flags[$definition] = true;
+            if (str_ends_with($definition, '=*')) {
+                $repeatable[substr($definition, 0, -2)] = true;
+            } elseif (str_ends_with($definition, '=')) {
+                $valued[rtrim($definition, '=')] = true;
+            } else {
+                $flags[$definition] = true;
+            }
         }
 
         $positional = [];
@@ -57,7 +64,12 @@ final class Input
 
             [$name, $value] = str_contains($token, '=') ? explode('=', substr($token, 2), 2) : [substr($token, 2), null];
 
-            if (isset($valued[$name])) {
+            if (isset($repeatable[$name])) {
+                if ($value === null || $value === '') {
+                    throw new CoreException("Option --{$name} requires a value (--{$name}=...).");
+                }
+                $options[$name][] = $value;
+            } elseif (isset($valued[$name])) {
                 if ($value === null || $value === '') {
                     throw new CoreException("Option --{$name} requires a value (--{$name}=...).");
                 }
@@ -115,6 +127,18 @@ final class Input
     {
         $value = $this->options[$name] ?? null;
         return is_string($value) ? $value : $default;
+    }
+
+    /**
+     * @brief Returns all values of a repeatable option (declared with the '=*' suffix).
+     *
+     * @param string $name Option name.
+     * @return list<string> Values in the order given (empty when the option was not used).
+     */
+    public function optionList(string $name): array
+    {
+        $value = $this->options[$name] ?? [];
+        return is_array($value) ? $value : [];
     }
 
     /**

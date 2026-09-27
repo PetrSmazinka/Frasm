@@ -16,6 +16,7 @@
 #   --update             Replace framework files only (app/, storage/, config are kept)
 #   --migrate            With --update: also run database migrations
 #   --no-example         Do not install the Hello world application
+#   --pwa                Make the site installable as an app (manifest + icons)
 #   --web-user <user>    Web server user owning storage/ (default: www-data)
 #   --source <dir>       Use a local framework checkout instead of downloading (development)
 #
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --update)     PASS_ARGS+=("--update"); shift ;;
         --migrate)    PASS_ARGS+=("--migrate"); shift ;;
         --no-example) PASS_ARGS+=("--no-example"); shift ;;
+        --pwa)        PASS_ARGS+=("--pwa"); shift ;;
         -h|--help)    usage 0 ;;
         -*)           die "Unknown option: $1" ;;
         *)            [[ -z "$TARGET" ]] || die "Only one target directory may be given."; TARGET="$1"; shift ;;

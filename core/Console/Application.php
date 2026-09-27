@@ -43,6 +43,7 @@ final class Application
         Commands\QueueFailedCommand::class,
         Commands\QueueRetryCommand::class,
         Commands\QueueFlushCommand::class,
+        Commands\PwaBuildCommand::class,
         Commands\PushVapidCommand::class,
         Commands\PushSendCommand::class,
         Commands\TokenCreateCommand::class,
@@ -61,6 +62,7 @@ final class Application
         'token' => 'Security',
         'logs'  => 'Logging',
         'push'  => 'Web Push',
+        'pwa'   => 'Web App (PWA)',
         'queue' => 'Queue',
         'route' => 'Routing',
         'user'  => 'Users',
@@ -237,7 +239,11 @@ final class Application
             $this->output->line();
             $this->output->title('Options');
             foreach ($command->options() as $name => $description) {
-                $label = str_ends_with($name, '=') ? '--' . $name . '<value>' : '--' . $name;
+                $label = match (true) {
+                    str_ends_with($name, '=*') => '--' . substr($name, 0, -1) . '<value>...',
+                    str_ends_with($name, '=') => '--' . $name . '<value>',
+                    default => '--' . $name,
+                };
                 $this->output->line('  ' . $this->output->style(str_pad($label, 22), 'green') . $description);
             }
         }

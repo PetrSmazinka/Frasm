@@ -30,15 +30,29 @@ if (!function_exists('frasm_head')) {
      * Place it inside <head> of every layout. Scripts are versioned by modification time and marked
      * with data-frasm-track, so a deployment of new framework scripts forces a full page reload.
      *
-     * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push'
-     *                                     (null = nav + live + stream, plus push when enabled).
+     * When `pwa.enabled` is on and `php bin/frasm pwa:build` has generated the manifest, it also links
+     * the web app manifest and icons and registers the service worker (feature 'pwa').
+     *
+     * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push', 'pwa'
+     *                                     (null = nav + live + stream, plus push and pwa when enabled).
      * @return string HTML markup.
      * @throws \Core\Exceptions\CoreException On an unknown feature name.
      */
     function frasm_head(?array $features = null): string
     {
         $pushEnabled = \Core\Push\PushManager::isEnabled();
-        $features ??= $pushEnabled ? ['nav', 'live', 'stream', 'push'] : ['nav', 'live', 'stream'];
+        $pwaEnabled = \Core\Pwa\PwaBuilder::isEnabled()
+            && is_file(FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'manifest.webmanifest');
+
+        if ($features === null) {
+            $features = ['nav', 'live', 'stream'];
+            if ($pushEnabled) {
+                $features[] = 'push';
+            }
+            if ($pwaEnabled) {
+                $features[] = 'pwa';
+            }
+        }
 
         $container = \Core\Container\Container::getInstance();
         $request = $container->bound(\Core\Http\Request::class)
@@ -51,13 +65,26 @@ if (!function_exists('frasm_head')) {
         $html = '<meta name="frasm-base" content="' . $escape($base) . '">' . "\n"
             . '<meta name="csrf-token" content="' . $escape(\Core\Security\Csrf::token()) . '">' . "\n";
 
+        $serviceWorker = (string)\Core\Config\Config::get('push.service_worker', '/frasm-sw.js');
+
         if ($pushEnabled && in_array('push', $features, true)) {
             $html .= '<meta name="frasm-push-key" content="' . $escape(\Core\Push\PushManager::publicKey()) . '">' . "\n"
-                . '<meta name="frasm-push-sw" content="' . $escape((string)\Core\Config\Config::get('push.service_worker', '/frasm-sw.js')) . '">' . "\n";
+                . '<meta name="frasm-push-sw" content="' . $escape($serviceWorker) . '">' . "\n";
+        }
+
+        if ($pwaEnabled && in_array('pwa', $features, true)) {
+            $appName = (string)(\Core\Config\Config::get('pwa.short_name') ?? \Core\Config\Config::get('pwa.name') ?? \Core\Config\Config::get('app.name', 'Frasm'));
+            $html .= '<link rel="manifest" href="' . $escape("{$base}/manifest.webmanifest") . '">' . "\n"
+                . '<link rel="apple-touch-icon" href="' . $escape("{$base}/icons/apple-touch-icon.png") . '">' . "\n"
+                . '<meta name="theme-color" content="' . $escape((string)\Core\Config\Config::get('pwa.theme_color', '#343a40')) . '">' . "\n"
+                . '<meta name="mobile-web-app-capable" content="yes">' . "\n"
+                . '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n"
+                . '<meta name="apple-mobile-web-app-title" content="' . $escape($appName) . '">' . "\n"
+                . '<meta name="frasm-sw" content="' . $escape($serviceWorker) . '">' . "\n";
         }
 
         foreach ($features as $feature) {
-            if (!in_array($feature, ['nav', 'live', 'stream', 'push'], true)) {
+            if (!in_array($feature, ['nav', 'live', 'stream', 'push', 'pwa'], true)) {
                 throw new \Core\Exceptions\CoreException("Unknown frasm_head() feature '{$feature}'.");
             }
 
