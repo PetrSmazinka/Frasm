@@ -258,7 +258,7 @@ Enable it in `config/local.php` and generate the manifest and icons:
 ```
 
 ```bash
-make pwa:build            # writes public/manifest.webmanifest and public/icons/* (needs the PHP GD extension)
+make pwa:build            # writes public/manifest.webmanifest and public/pwa/* (needs the PHP GD extension)
 make pwa:build ARGS=--force   # after changing the icon or colors
 ```
 

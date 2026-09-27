@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Progressive Web App (installable web app)
  *
  * After changing these settings run `php bin/frasm pwa:build --force` to regenerate
- * public/manifest.webmanifest and the icons in public/icons/.
+ * public/manifest.webmanifest and the icons in public/pwa/.
  */
 return [
     'enabled' => false,

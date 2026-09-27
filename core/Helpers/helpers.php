@@ -75,7 +75,7 @@ if (!function_exists('frasm_head')) {
         if ($pwaEnabled && in_array('pwa', $features, true)) {
             $appName = (string)(\Core\Config\Config::get('pwa.short_name') ?? \Core\Config\Config::get('pwa.name') ?? \Core\Config\Config::get('app.name', 'Frasm'));
             $html .= '<link rel="manifest" href="' . $escape("{$base}/manifest.webmanifest") . '">' . "\n"
-                . '<link rel="apple-touch-icon" href="' . $escape("{$base}/icons/apple-touch-icon.png") . '">' . "\n"
+                . '<link rel="apple-touch-icon" href="' . $escape("{$base}/" . \Core\Pwa\PwaBuilder::ICON_DIR . '/apple-touch-icon.png') . '">' . "\n"
                 . '<meta name="theme-color" content="' . $escape((string)\Core\Config\Config::get('pwa.theme_color', '#343a40')) . '">' . "\n"
                 . '<meta name="mobile-web-app-capable" content="yes">' . "\n"
                 . '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n"

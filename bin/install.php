@@ -279,6 +279,33 @@ function chownRecursive(string $path, string $user, int $group): void
 }
 
 /**
+ * @brief Gives a path the web server group and the required mode without degrading it on failure.
+ *
+ * @param string $path File or directory.
+ * @param string $group Group name.
+ * @param int $gid Group id.
+ * @param int $mode Target mode (including setgid for directories).
+ * @return bool True when the path ends up with the group and mode.
+ */
+function setGroupAndMode(string $path, string $group, int $gid, int $mode): bool
+{
+    clearstatcache(true, $path);
+    if (filegroup($path) !== $gid && !@chgrp($path, $group)) {
+        return false;
+    }
+
+    clearstatcache(true, $path);
+    if ((fileperms($path) & 07777) === $mode) {
+        return true;
+    }
+
+    @chmod($path, $mode);
+    clearstatcache(true, $path);
+
+    return (fileperms($path) & 07777) === $mode;
+}
+
+/**
  * @brief Sets the ownership model of a project.
  *
  * - Every file belongs to the deploying user, so later updates need no sudo. When the installer runs
@@ -319,14 +346,14 @@ function applyPermissions(string $target, string $webGroup): ?array
         $paths[] = $item->getPathname();
     }
 
+    // The group is changed first: chmod() by a user who is not an active member of the file's group
+    // silently drops the setgid bit, so permissions are only set once the group is in place.
     $ok = true;
     foreach ($paths as $path) {
-        @chmod($path, is_dir($path) ? 02775 : 0664);
-        $ok = @chgrp($path, $webGroup) && $ok;
+        $ok = setGroupAndMode($path, $webGroup, (int)$groupInfo['gid'], is_dir($path) ? 02775 : 0664) && $ok;
     }
     if (is_file($localConfig)) {
-        @chmod($localConfig, 0640);
-        $ok = @chgrp($localConfig, $webGroup) && $ok;
+        $ok = setGroupAndMode($localConfig, $webGroup, (int)$groupInfo['gid'], 0640) && $ok;
     }
 
     clearstatcache();

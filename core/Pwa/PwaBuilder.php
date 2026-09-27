@@ -15,7 +15,7 @@ use GdImage;
 
 /**
  * @class PwaBuilder
- * @brief Writes public/manifest.webmanifest and public/icons/* from config/pwa.php.
+ * @brief Writes public/manifest.webmanifest and public/pwa/* from config/pwa.php.
  *
  * The files are static, so the web server delivers them without running PHP. Icons are resized
  * with GD from `pwa.icon` (center-cropped to a square); without a source a placeholder in the theme
@@ -24,7 +24,13 @@ use GdImage;
 class PwaBuilder
 {
     /**
-     * @var array<string, array{size: int, maskable?: bool}> Icon files (relative to public/icons) and their sizes.
+     * @var string Icon directory below public/. Not "icons": Debian/Ubuntu Apache maps /icons/ globally
+     *             to /usr/share/apache2/icons/ (mod_alias), which would make the icons unreachable.
+     */
+    public const ICON_DIR = 'pwa';
+
+    /**
+     * @var array<string, array{size: int, maskable?: bool}> Icon files (relative to public/pwa) and their sizes.
      */
     public const ICONS = [
         'icon-192.png'          => ['size' => 192],
@@ -80,7 +86,7 @@ class PwaBuilder
         }
 
         foreach (array_keys(self::ICONS) as $file) {
-            if (!is_file($this->publicDir() . '/icons/' . $file)) {
+            if (!is_file($this->publicDir() . '/' . self::ICON_DIR . '/' . $file)) {
                 return false;
             }
         }
@@ -114,7 +120,8 @@ class PwaBuilder
                 continue;
             }
             $icons[] = [
-                'src'     => '/icons/' . $file,
+                // Relative to the manifest, so the app also works below a base path
+                'src'     => self::ICON_DIR . '/' . $file,
                 'sizes'   => "{$icon['size']}x{$icon['size']}",
                 'type'    => 'image/png',
                 'purpose' => empty($icon['maskable']) ? 'any' : 'maskable',
@@ -149,7 +156,7 @@ class PwaBuilder
         $manifest = json_encode($this->manifest(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
         $written = [];
 
-        $iconDir = $this->publicDir() . DIRECTORY_SEPARATOR . 'icons';
+        $iconDir = $this->publicDir() . DIRECTORY_SEPARATOR . self::ICON_DIR;
         $missing = array_filter(array_keys(self::ICONS), fn(string $file): bool => $force || !is_file("{$iconDir}/{$file}"));
 
         if ($missing !== []) {
@@ -172,7 +179,7 @@ class PwaBuilder
                 ob_start();
                 imagepng($image, null, 9);
                 $this->writeFile("{$iconDir}/{$file}", (string)ob_get_clean());
-                $written[] = "icons/{$file}";
+                $written[] = self::ICON_DIR . "/{$file}";
             }
         }
 
