@@ -46,7 +46,7 @@ const FRAMEWORK_FILES = [
 /**
  * @var list<string> Required PHP extensions.
  */
-const REQUIRED_EXTENSIONS = ['mysqli', 'openssl', 'mbstring', 'json'];
+const REQUIRED_EXTENSIONS = ['mysqli', 'openssl', 'mbstring', 'json', 'posix'];
 
 /**
  * @var array<string, string> Optional PHP extensions and the feature needing them.
@@ -254,23 +254,65 @@ function createLocalConfig(string $source, string $target): ?string
 }
 
 /**
- * @brief Gives the web server group write access to storage/ and read access to config/local.php.
+ * @brief Recursively changes the owner and group of a directory tree.
  *
- * Changing the group works as root or when the installing user is a member of the web server group.
- * Directories get the setgid bit so files created later (by the web server or CLI) inherit the group.
+ * @param string $path Directory.
+ * @param string $user Owner.
+ * @param int $group Group id.
+ * @return void
+ */
+function chownRecursive(string $path, string $user, int $group): void
+{
+    @chown($path, $user);
+    @chgrp($path, $group);
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        @lchown($item->getPathname(), $user);
+        @lchgrp($item->getPathname(), $group);
+    }
+}
+
+/**
+ * @brief Sets the ownership model of a project.
+ *
+ * - Every file belongs to the deploying user, so later updates need no sudo. When the installer runs
+ *   through `sudo`, the project is handed over to the invoking user (SUDO_USER).
+ * - The web server group gets read access to config/local.php and write access to storage/
+ *   (setgid directories, so files created later by the web server or the CLI keep the group).
+ *
+ * Changing a file's group works as root, or as the file's owner when they are a member of the group.
  *
  * @param string $target Project directory.
  * @param string $webGroup Web server group.
- * @return list<string> Shell commands still required (empty when everything was applied).
+ * @return array{0: string, 1: list<string>}|null Step still required (description, commands), or null when done.
  */
-function applyPermissions(string $target, string $webGroup): array
+function applyPermissions(string $target, string $webGroup): ?array
 {
-    $paths = [];
+    $groupInfo = posix_getgrnam($webGroup);
+    if ($groupInfo === false) {
+        return ["The group '{$webGroup}' does not exist; rerun with --web-user=<web server group>.", []];
+    }
+
+    $isRoot = posix_geteuid() === 0;
+    $sudoUser = getenv('SUDO_USER');
+    if ($isRoot && is_string($sudoUser) && $sudoUser !== '' && $sudoUser !== 'root') {
+        $owner = posix_getpwnam($sudoUser);
+        if ($owner !== false) {
+            chownRecursive($target, $sudoUser, (int)$owner['gid']);
+        }
+    }
+
+    $storage = $target . '/storage';
+    $localConfig = $target . '/config/local.php';
+    $paths = [$storage];
     $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($target . '/storage', FilesystemIterator::SKIP_DOTS),
+        new RecursiveDirectoryIterator($storage, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::SELF_FIRST
     );
-    $paths[] = $target . '/storage';
     foreach ($iterator as $item) {
         $paths[] = $item->getPathname();
     }
@@ -280,20 +322,34 @@ function applyPermissions(string $target, string $webGroup): array
         @chmod($path, is_dir($path) ? 02775 : 0664);
         $ok = @chgrp($path, $webGroup) && $ok;
     }
-
-    $localConfig = $target . '/config/local.php';
     if (is_file($localConfig)) {
+        @chmod($localConfig, 0640);
         $ok = @chgrp($localConfig, $webGroup) && $ok;
     }
 
     clearstatcache();
     if ($ok) {
-        return [];
+        return null;
+    }
+
+    $user = posix_getpwuid(posix_geteuid())['name'] ?? 'USER';
+    $commands = "chgrp -R {$webGroup} {$storage} {$localConfig} && chmod -R g+rwX {$storage}";
+    $isMember = in_array($user, $groupInfo['members'], true);
+    $isActive = in_array($groupInfo['gid'], posix_getgroups() ?: [], true);
+
+    if ($isMember && !$isActive) {
+        return [
+            "Your membership in '{$webGroup}' is not active in this session yet. Log out and back in and rerun the installer, or run:",
+            ["sg {$webGroup} -c \"{$commands}\""],
+        ];
     }
 
     return [
-        "sudo chgrp -R {$webGroup} {$target}/storage {$localConfig}",
-        "sudo chmod -R g+rwX {$target}/storage",
+        "Grant the web server access (required):",
+        [
+            "sudo sh -c \"{$commands}\"",
+            "# tip: `sudo usermod -aG {$webGroup} {$user}` (then log in again) lets the installer do this itself",
+        ],
     ];
 }
 
@@ -321,8 +377,12 @@ function main(array $argv): void
     if ($update && !is_dir($target)) {
         fail("'{$target}' does not exist; run without --update.");
     }
-    if (!is_dir($target) && !mkdir($target, 0755, true) && !is_dir($target)) {
-        fail("Cannot create target directory '{$target}'.");
+    if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
+        $user = posix_getpwuid(posix_geteuid())['name'] ?? 'USER';
+        fail("Cannot create '{$target}' (no write permission in " . dirname($target) . ").\n"
+            . "  Create it once and give it to yourself, then run the installer again without sudo:\n"
+            . "      sudo install -d -o {$user} -g {$webUser} {$target}\n"
+            . "  or run the whole installer with sudo (the project is then handed over to you).");
     }
     $target = (string)realpath($target);
 
@@ -413,9 +473,9 @@ function main(array $argv): void
     }
     touch("{$target}/storage/.gitkeep");
 
-    $requiredCommands = applyPermissions($target, $webUser);
-    if ($requiredCommands === []) {
-        console()->success("Permissions set for group '{$webUser}'");
+    $permissionStep = applyPermissions($target, $webUser);
+    if ($permissionStep === null) {
+        console()->success("Permissions set (owner " . (posix_getpwuid(fileowner($target))['name'] ?? '?') . ", web server group '{$webUser}')");
     }
 
     // 4. Version stamp
@@ -432,13 +492,9 @@ function main(array $argv): void
     $hasMake = trim((string)shell_exec('command -v make 2>/dev/null')) !== '';
     $task = static fn(string $shortcut, string $command): string => $hasMake ? "make {$shortcut}" : "php bin/frasm {$command}";
 
-    if ($requiredCommands !== []) {
+    if ($permissionStep !== null) {
         console()->warning("The web server group '{$webUser}' cannot read config/local.php or write storage/ yet");
-        $user = function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'USER') : 'USER';
-        $steps[] = ['Grant the web server access (required):', array_merge(
-            $requiredCommands,
-            ["# tip: `sudo usermod -aG {$webUser} {$user}` makes this automatic next time"]
-        )];
+        $steps[] = $permissionStep;
     }
 
     // 5. Post-update tasks

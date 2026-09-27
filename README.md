@@ -22,7 +22,7 @@ fragments to the browser. No Composer, no build step, no Node.js.
 
 ## Requirements
 
-- PHP **8.3+** with `mysqli`, `openssl`, `mbstring` and `json`
+- PHP **8.3+** with `mysqli`, `openssl`, `mbstring`, `json` and `posix`
   (optional: `curl` for Web Push, `pcntl` for graceful worker shutdown, OPcache for performance)
 - MariaDB **10.6+** or MySQL **8.0+**
 - Apache **2.4** with `mod_rewrite` (or PHP's built-in server for development)
@@ -72,8 +72,21 @@ Point the document root to `public/`; the bundled `.htaccess` routes every reque
 </VirtualHost>
 ```
 
-The web server needs read access to `config/local.php` and write access to `storage/`.
-Run the installer as a member of the `www-data` group (or as root) and it sets this up; otherwise it prints the exact commands.
+### Permissions
+
+The project belongs to you, so you can edit and update it without `sudo`; the web server only gets what
+it needs through its group: read access to `config/local.php` and write access to `storage/`.
+
+The installer sets this up when you are a member of the web server group (log in again after adding yourself):
+
+```bash
+sudo usermod -aG www-data "$USER"             # once; then log out and back in
+sudo install -d -o "$USER" -g www-data /var/www/myapp
+bash install.sh /var/www/myapp
+```
+
+Running the whole installer with `sudo` works too: it hands the project over to the user who invoked `sudo`.
+If anything cannot be applied, the installer prints the exact commands to finish the job.
 
 ## Updating
 
