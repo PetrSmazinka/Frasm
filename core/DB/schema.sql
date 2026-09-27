@@ -2,11 +2,11 @@
 -- Frasm core database schema
 -- -----------------------------------------------------------------------------
 -- Applied idempotently by Core\DB\Migrator before application migrations
--- (bin/db.php migrate). Every internal table uses the `frasm_` prefix.
+-- (php bin/frasm db:migrate). Every internal table uses the `frasm_` prefix.
 --
 -- Sections introduced by "-- @module <name>" are applied only when the module is
 -- enabled (see Migrator::CORE_MODULES). Statements must end with ';' at line end.
--- Existing tables are never altered: during development use `make reset`.
+-- Existing tables are never altered: during development use `php bin/frasm db:reset`.
 -- =============================================================================
 
 -- @module core

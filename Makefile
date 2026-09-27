@@ -1,107 +1,51 @@
+# =============================================================================
+# Frasm – common development and deployment tasks
 # -----------------------------------------------------------------------------
-# Frasm Framework Automation Makefile
-# -----------------------------------------------------------------------------
-PHP       := php
-PORT      := 8000
-HOST      := 127.0.0.1
-PUBLIC_DIR := public
+# Shortcuts for the most frequent workflows. Every target calls the Frasm CLI;
+# run `php bin/frasm list` for all available commands.
+# =============================================================================
 
-.PHONY: help update serve migrate rollback wipe reset seed fresh prune routes routes-cache routes-clear vapid key queue-work queue-stats logs-archive
+PHP   ?= php
+FRASM := $(PHP) bin/frasm
+HOST  ?= 127.0.0.1
+PORT  ?= 8000
+REF   ?= master
 
-# Default target: display help
-help:
-	@echo "Available commands:"
-	@echo "  make serve       Start local PHP development server (http://$(HOST):$(PORT))"
-	@echo "  make update      Update framework files (REF=<tag|branch>, default master; MIGRATE=1 runs migrations)"
-	@echo "  make migrate     Run all pending database migrations"
-	@echo "  make rollback    Rollback the latest migration batch"
-	@echo "  make reset       Wipe database and re-run all migrations"
-	@echo "  make seed        Seed or synchronize the default administrator account"
-	@echo "  make fresh       Reset database and seed immediately (wipe + migrate + seed)"
-	@echo "  make prune       Purge expired remember-me tokens from database"
-	@echo "  make wipe        Drop all database tables completely"
-	@echo "  make routes      List all registered routes"
-	@echo "  make routes-cache  Build the route cache (run after deploy)"
-	@echo "  make routes-clear  Delete the route cache"
-	@echo "  make vapid       Generate VAPID keys for Web Push notifications"
-	@echo "  make key         Generate the application key (app.key)"
-	@echo "  make queue-work  Process queued jobs until the queue is empty (cron mode)"
-	@echo "  make queue-stats Show pending / running / failed jobs"
-	@echo "  make logs-archive  Move logs from tmpfs to persistent storage"
+.DEFAULT_GOAL := help
+.PHONY: help serve fresh migrate seed routes cache worker update
 
-# -----------------------------------------------------------------------------
-# Development Server
-# -----------------------------------------------------------------------------
-serve:
-	@echo "Starting development server on http://$(HOST):$(PORT)..."
-	@$(PHP) -S $(HOST):$(PORT) -t $(PUBLIC_DIR)
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*## "} \
+		/^##@/ {printf "\n%s\n", substr($$0, 5)} \
+		/^[a-z-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@printf "\nAll commands: php bin/frasm list\n"
 
-# -----------------------------------------------------------------------------
-# Database & Migrations
-# -----------------------------------------------------------------------------
-migrate:
-	@$(PHP) bin/db.php migrate
+##@ Development
 
-rollback:
-	@$(PHP) bin/db.php rollback
+serve: ## Start the development server (HOST=127.0.0.1 PORT=8000)
+	@$(FRASM) serve --host=$(HOST) --port=$(PORT)
 
-wipe:
-	@$(PHP) bin/db.php wipe
+fresh: ## Recreate the database and seed the admin (destroys all data)
+	@$(FRASM) db:reset --seed
 
-reset:
-	@$(PHP) bin/db.php reset
+##@ Database
 
-seed:
-	@$(PHP) bin/seed-admin.php
+migrate: ## Apply the core schema and pending migrations
+	@$(FRASM) db:migrate
 
-fresh:
-	@$(PHP) bin/db.php reset --seed
+seed: ## Create or update the administrator account
+	@$(FRASM) db:seed
 
-# -----------------------------------------------------------------------------
-# Maintenance & Cron Tasks
-# -----------------------------------------------------------------------------
-prune:
-	@$(PHP) bin/prune-tokens.php
+##@ Production
 
-# -----------------------------------------------------------------------------
-# Routing
-# -----------------------------------------------------------------------------
-routes:
-	@$(PHP) bin/routes.php list
+routes: ## List all routes
+	@$(FRASM) route:list
 
-routes-cache:
-	@$(PHP) bin/routes.php cache
+cache: ## Rebuild the route cache (after every deploy)
+	@$(FRASM) route:cache
 
-routes-clear:
-	@$(PHP) bin/routes.php clear
+worker: ## Process queued jobs until the queue is empty (cron mode)
+	@$(FRASM) queue:work --once
 
-# -----------------------------------------------------------------------------
-# Web Push
-# -----------------------------------------------------------------------------
-vapid:
-	@$(PHP) bin/push.php vapid
-
-key:
-	@$(PHP) bin/key.php
-
-# -----------------------------------------------------------------------------
-# Job Queue
-# -----------------------------------------------------------------------------
-queue-work:
-	@$(PHP) bin/queue.php work --once
-
-queue-stats:
-	@$(PHP) bin/queue.php stats
-
-# -----------------------------------------------------------------------------
-# Logs
-# -----------------------------------------------------------------------------
-logs-archive:
-	@$(PHP) bin/logs.php archive
-
-# -----------------------------------------------------------------------------
-# Framework update (downloads REF and replaces framework files only)
-# -----------------------------------------------------------------------------
-REF ?= master
-update:
+update: ## Update the framework (REF=<tag|branch>, MIGRATE=1 also migrates)
 	@./install.sh --update --ref $(REF) $(if $(MIGRATE),--migrate,) .

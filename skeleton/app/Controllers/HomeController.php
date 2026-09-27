@@ -26,7 +26,7 @@ class HomeController extends BaseController
         $counter->mount(0);
 
         return $this->view('home/index', [
-            'pageTitle' => 'Hello, Frasm!',
+            'pageTitle' => 'Home',
             'counter'   => $counter->render(),
         ]);
     }

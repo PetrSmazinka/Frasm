@@ -3,12 +3,17 @@
 /**
  * @file 404.php
  * @brief Production "not found" page (used when app.debug is false).
+ *
  * @var int $status
  * @var string $message
  */
+
 $pageTitle = 'Page not found';
 require FRASM_APP_DIR . '/Views/layout/header.php';
 ?>
-<h1>404 – <?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8') ?></h1>
-<p>The page you are looking for does not exist. <a href="/">Back home</a></p>
+<div class="card card--narrow">
+    <h1>404</h1>
+    <p class="muted">The page you are looking for does not exist.</p>
+    <a class="btn btn--primary" href="/">Back home</a>
+</div>
 <?php require FRASM_APP_DIR . '/Views/layout/footer.php'; ?>

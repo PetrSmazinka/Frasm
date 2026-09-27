@@ -2,141 +2,46 @@
 
 /**
  * @file login.php
- * @var string|null $pageTitle
- * @var string|null $flash_error
- * @var string|null $flash_info
+ * @brief Sign-in form.
+ *
  * @var string $csrf_field
+ * @var array<string, list<string>> $errors Validation errors.
+ * @var array<string, mixed> $old Previously submitted input.
  */
+
+require FRASM_APP_DIR . '/Views/layout/header.php';
+
+$fieldError = static function (string $field) use ($errors): string {
+    return isset($errors[$field][0])
+        ? '<p class="field__error">' . htmlspecialchars($errors[$field][0], ENT_QUOTES, 'UTF-8') . '</p>'
+        : '';
+};
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($pageTitle ?? 'Sign In', ENT_QUOTES, 'UTF-8') ?></title>
-    <?= frasm_head() ?>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f172a;
-            color: #f8fafc;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-        }
-        .login-card {
-            background: #1e293b;
-            padding: 2.5rem;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            width: 100%;
-            max-width: 380px;
-        }
-        h1 { 
-            margin-top: 0; 
-            font-size: 1.5rem; 
-            text-align: center; 
-        }
-        .alert {
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            margin-bottom: 1.25rem;
-            font-size: 0.9rem;
-        }
-        .alert-error { 
-            background: rgba(239, 68, 68, 0.15); 
-            border: 1px solid #ef4444; 
-            color: #fca5a5; 
-        }
-        .alert-info { 
-            background: rgba(59, 130, 246, 0.15); 
-            border: 1px solid #3b82f6; 
-            color: #93c5fd; 
-        }
-        .form-group { 
-            margin-bottom: 1.25rem; 
-        }
-        label { 
-            display: block; 
-            margin-bottom: 0.4rem; 
-            font-size: 0.85rem; 
-            color: #94a3b8; 
-        }
-        input[type="text"], input[type="password"] {
-            width: 100%;
-            padding: 0.65rem 0.75rem;
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            color: #fff;
-            box-sizing: border-box;
-            font-size: 1rem;
-        }
-        input:focus { 
-            border-color: #6366f1; 
-            outline: none; 
-        }
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background: #6366f1;
-            border: none;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 1rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        button:hover { 
-            background: #4f46e5; 
-        }
-    </style>
-</head>
-<body>
+<div class="card card--narrow">
+    <h1>Sign in</h1>
+    <p class="muted">Use the administrator account created by <code>php bin/frasm db:seed</code>.</p>
 
-<div class="login-card">
-    <h1>Sign In</h1>
-
-    <!-- Flash message notifications -->
-    <?php if (!empty($flash_error)): ?>
-        <div class="alert alert-error">
-            <?= htmlspecialchars($flash_error, ENT_QUOTES, 'UTF-8') ?>
-        </div>
-    <?php endif; ?>
-
-    <?php if (!empty($flash_info)): ?>
-        <div class="alert alert-info">
-            <?= htmlspecialchars($flash_info, ENT_QUOTES, 'UTF-8') ?>
-        </div>
-    <?php endif; ?>
-
-    <form method="POST" action="/login">
-        <!-- Injected CSRF protection token -->
+    <form method="post" action="/login">
         <?= $csrf_field ?>
 
-        <div class="form-group">
-            <label for="identifier">Username or Email</label>
-            <input type="text" id="identifier" name="identifier" required autofocus>
+        <div class="field">
+            <label for="identifier">Username or email</label>
+            <input type="text" id="identifier" name="identifier" autocomplete="username" autofocus
+                   value="<?= htmlspecialchars((string)($old['identifier'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+            <?= $fieldError('identifier') ?>
         </div>
 
-        <div class="form-group">
+        <div class="field">
             <label for="password">Password</label>
-            <input type="password" id="password" name="password" required>
+            <input type="password" id="password" name="password" autocomplete="current-password">
+            <?= $fieldError('password') ?>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem;">
-            <input type="checkbox" id="remember_me" name="remember_me" value="1" style="width: auto; cursor: pointer;">
-            <label for="remember_me" style="margin-bottom: 0; cursor: pointer; color: #cbd5e1; font-size: 0.9rem;">
-                Remember me
-            </label>
-        </div>
+        <label class="checkbox">
+            <input type="checkbox" name="remember_me" value="1"> Keep me signed in
+        </label>
 
-        <button type="submit">Sign In</button>
+        <button type="submit" class="btn btn--primary btn--block">Sign in</button>
     </form>
 </div>
-
-</body>
-</html>
+<?php require FRASM_APP_DIR . '/Views/layout/footer.php'; ?>

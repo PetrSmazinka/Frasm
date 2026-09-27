@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Job queue (table frasm_jobs, worker: php bin/queue.php work)
+ * Job queue (table frasm_jobs, worker: php bin/frasm queue:work)
  */
 return [
     // Seconds after which a job reserved by a crashed worker is handed out again

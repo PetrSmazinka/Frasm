@@ -21,7 +21,7 @@ use Throwable;
  *  - `routing.cache` (bool): enable the cache.
  *  - `routing.cache_path` (string): cache file location.
  *  - `routing.cache_validate` (bool|null): compare controller file modification times on every request
- *    (null = follow `app.debug`). Without validation, rebuild with `php bin/routes.php cache` after deploys.
+ *    (null = follow `app.debug`). Without validation, rebuild with `php bin/frasm route:cache` after deploys.
  *
  * The file is written atomically (temp file + rename) and invalidated in OPcache.
  */

@@ -20,6 +20,10 @@ declare(strict_types=1);
  *   - app/, database/, storage/, config/local.php and .gitignore are created once and never touched again.
  */
 
+use Core\Console\Output;
+
+require_once dirname(__DIR__) . '/core/Console/Output.php';
+
 const MIN_PHP_VERSION_ID = 80300;
 
 /**
@@ -36,6 +40,7 @@ const FRAMEWORK_FILES = [
     'public/frasm-sw.js',
     'Makefile',
     'install.sh',
+    'LICENSE',
 ];
 
 /**
@@ -49,14 +54,14 @@ const REQUIRED_EXTENSIONS = ['mysqli', 'openssl', 'mbstring', 'json'];
 const OPTIONAL_EXTENSIONS = ['curl' => 'Web Push delivery', 'pcntl' => 'graceful queue worker shutdown', 'Zend OPcache' => 'performance'];
 
 /**
- * @brief Prints a message to STDOUT.
+ * @brief Returns the shared console output (same style as bin/frasm).
  *
- * @param string $message Message.
- * @return void
+ * @return Output
  */
-function out(string $message): void
+function console(): Output
 {
-    fwrite(STDOUT, $message . PHP_EOL);
+    static $output = null;
+    return $output ??= new Output();
 }
 
 /**
@@ -67,7 +72,7 @@ function out(string $message): void
  */
 function fail(string $message): never
 {
-    fwrite(STDERR, "✖ {$message}" . PHP_EOL);
+    console()->error($message);
     exit(1);
 }
 
@@ -108,7 +113,7 @@ function checkRequirements(): void
 
     foreach (OPTIONAL_EXTENSIONS as $extension => $feature) {
         if (!extension_loaded($extension)) {
-            out("  ! Optional extension '{$extension}' is missing ({$feature}).");
+            console()->warning("Optional PHP extension '{$extension}' is missing ({$feature})");
         }
     }
 }
@@ -336,8 +341,9 @@ function main(array $argv): void
         fail("'{$target}' is not empty; install into an empty or new directory.");
     }
 
-    out(($update ? 'Updating' : 'Installing') . " Frasm in {$target}");
+    console()->title(($update ? 'Updating' : 'Installing') . " Frasm in {$target}");
     checkRequirements();
+    console()->success('Requirements met (PHP ' . PHP_VERSION . ')');
 
     // 1. Framework files (always replaced)
     foreach (FRAMEWORK_DIRS as $directory) {
@@ -348,6 +354,8 @@ function main(array $argv): void
             replaceFile("{$source}/{$file}", "{$target}/{$file}");
         }
     }
+
+    console()->success('Framework files ' . ($update ? 'updated' : 'installed'));
 
     // Framework scripts: replace current ones, drop ones that no longer exist
     $scripts = array_map('basename', glob("{$source}/public/js/frasm-*.js") ?: []);
@@ -372,9 +380,11 @@ function main(array $argv): void
         $destination = "{$target}/config/{$name}";
         if (!is_file($destination)) {
             copy($config, $destination);
-            out("  + config/{$name}");
+            if ($update) {
+                console()->success("Added new configuration file config/{$name}");
+            }
         } elseif (md5_file($config) !== md5_file($destination)) {
-            out("  ~ config/{$name} differs from the new default (kept; compare with {$source}/config/{$name})");
+            console()->warning("config/{$name} differs from the new default (your version is kept)");
         }
     }
 
@@ -387,10 +397,13 @@ function main(array $argv): void
             }
         } else {
             copyDirectory("{$source}/skeleton/app", "{$target}/app");
+            copyDirectory("{$source}/skeleton/public", "{$target}/public");
         }
         copyDirectory("{$source}/skeleton/database", "{$target}/database");
         copy("{$source}/skeleton/gitignore", "{$target}/.gitignore");
         $adminPassword = createLocalConfig($source, $target);
+        console()->success('Project structure created' . (isset($options['no-example']) ? '' : ' with the Hello world application'));
+        console()->success('config/local.php created with a new app key');
     }
 
     foreach (['storage/logs', 'storage/cache'] as $directory) {
@@ -401,16 +414,9 @@ function main(array $argv): void
     touch("{$target}/storage/.gitkeep");
 
     $requiredCommands = applyPermissions($target, $webUser);
-    $permissionHint = static function () use ($requiredCommands, $webUser): void {
-        if ($requiredCommands === []) {
-            return;
-        }
-        out("  ⚠ REQUIRED: the web server ('{$webUser}') cannot read config/local.php or write storage/ yet. Run:");
-        foreach ($requiredCommands as $command) {
-            out("      {$command}");
-        }
-        out("    (Tip: `sudo usermod -aG {$webUser} " . (function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'USER') : 'USER') . "` lets future installs/updates do this without sudo.)");
-    };
+    if ($requiredCommands === []) {
+        console()->success("Permissions set for group '{$webUser}'");
+    }
 
     // 4. Version stamp
     file_put_contents("{$target}/.frasm-version", json_encode([
@@ -419,37 +425,76 @@ function main(array $argv): void
         'installed_at' => date('c'),
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 
+    $frasm = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/frasm");
+    $steps = [];
+
+    if ($requiredCommands !== []) {
+        console()->warning("The web server group '{$webUser}' cannot read config/local.php or write storage/ yet");
+        $user = function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'USER') : 'USER';
+        $steps[] = ['Grant the web server access (required):', array_merge(
+            $requiredCommands,
+            ["# tip: `sudo usermod -aG {$webUser} {$user}` makes this automatic next time"]
+        )];
+    }
+
     // 5. Post-update tasks
     if ($update) {
-        passthru(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/routes.php") . ' clear');
+        passthru("{$frasm} route:clear");
         if (isset($options['migrate'])) {
-            passthru(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/db.php") . ' migrate', $status);
+            passthru("{$frasm} db:migrate", $status);
             if ($status !== 0) {
                 fail('Database migration failed.');
             }
+        } else {
+            $steps[] = ['Apply database changes:', ["cd {$target} && php bin/frasm db:migrate"]];
         }
+        $steps[] = ['Reload PHP (OPcache) and restart the queue worker if it runs as a service:', [
+            'sudo systemctl reload apache2 && sudo systemctl restart frasm-queue',
+        ]];
 
-        out('✔ Framework updated.');
-        $permissionHint();
-        out('  Next: reload the web server (OPcache) and restart the queue worker if it runs as a service:');
-        out('      sudo systemctl reload apache2; sudo systemctl restart frasm-queue');
-        if (!isset($options['migrate'])) {
-            out("      php {$target}/bin/db.php migrate   # apply core schema / app migrations");
-        }
+        console()->line();
+        console()->success('Frasm updated');
+        printSteps($steps);
         return;
     }
 
-    out('✔ Frasm installed.');
-    out('');
-    out('Next steps:');
-    $permissionHint();
-    out("  1. Set database credentials in {$target}/config/local.php");
-    out("  2. php {$target}/bin/db.php migrate && php {$target}/bin/seed-admin.php");
+    $steps[] = ["Set the database credentials in {$target}/config/local.php, then:", [
+        "cd {$target}",
+        'php bin/frasm db:migrate',
+        'php bin/frasm db:seed',
+    ]];
+    $steps[] = ["Point the web server's DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite),", [
+        'or preview locally: make serve',
+    ]];
+
+    console()->line();
+    console()->success('Frasm installed');
     if ($adminPassword !== null) {
-        out("     Admin login: admin / {$adminPassword}   (stored in config/local.php, change it after the first login)");
+        console()->line("  Administrator: admin / {$adminPassword}  (stored in config/local.php; change it after signing in)");
     }
-    out("  3. Point the web server DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite)");
-    out("     Quick local preview: cd {$target} && make serve");
+    printSteps($steps);
+}
+
+/**
+ * @brief Prints numbered next steps with their shell commands.
+ *
+ * @param list<array{0: string, 1: list<string>}> $steps Step description and commands.
+ * @return void
+ */
+function printSteps(array $steps): void
+{
+    if ($steps === []) {
+        return;
+    }
+
+    console()->line();
+    console()->title('Next steps');
+    foreach ($steps as $index => [$description, $commands]) {
+        console()->line('  ' . ($index + 1) . '. ' . $description);
+        foreach ($commands as $command) {
+            str_starts_with($command, '#') ? console()->comment('       ' . $command) : console()->line('       ' . $command);
+        }
+    }
 }
 
 main($argv);

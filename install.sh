@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Frasm installer / updater
+# Frasm installer and updater
 # -----------------------------------------------------------------------------
 # Downloads the framework and creates a new project (or updates an existing one).
 #
@@ -41,6 +41,10 @@ die() {
     exit 1
 }
 
+step() {
+    echo "› $*"
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ref)        REF="${2:?--ref requires a value}"; shift 2 ;;
@@ -70,7 +74,7 @@ if [[ -n "$SOURCE" ]]; then
     SRC="$(cd "$SOURCE" && pwd)"
     COMMIT="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true)"
 elif [[ -z "${GITHUB_TOKEN:-}" ]] && command -v git >/dev/null 2>&1; then
-    echo "Fetching Frasm ($REF) from $REPO ..."
+        step "Fetching Frasm ($REF) from $REPO"
     git clone --quiet --depth 1 --branch "$REF" "$REPO" "$WORK/frasm" || die "git clone failed (private repository? set FRASM_REPO to an SSH URL or GITHUB_TOKEN)."
     SRC="$WORK/frasm"
     COMMIT="$(git -C "$SRC" rev-parse --short HEAD)"
@@ -81,7 +85,7 @@ else
     AUTH=()
     [[ -n "${GITHUB_TOKEN:-}" ]] && AUTH=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
 
-    echo "Downloading Frasm ($REF) from $URL ..."
+        step "Downloading Frasm ($REF) from $URL"
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL "${AUTH[@]}" -o "$WORK/frasm.tar.gz" "$URL" || die "Download failed."
     elif command -v wget >/dev/null 2>&1; then

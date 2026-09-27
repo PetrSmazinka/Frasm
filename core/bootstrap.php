@@ -92,9 +92,10 @@ $container->singleton(UserProviderInterface::class, function (Container $c): Use
 $container->singleton(RateLimiter::class, fn(): RateLimiter => new RateLimiter(
     (int)Config::get('middleware.rate_limit_prune_probability', 100)
 ));
-$container->singleton(\Core\Queue\QueueInterface::class, fn(): \Core\Queue\QueueInterface => new \Core\Queue\DatabaseQueue(
+$container->singleton(\Core\Queue\DatabaseQueue::class, fn(): \Core\Queue\DatabaseQueue => new \Core\Queue\DatabaseQueue(
     (int)Config::get('queue.retry_after', 300)
 ));
+$container->singleton(\Core\Queue\QueueInterface::class, fn(Container $c): \Core\Queue\QueueInterface => $c->get(\Core\Queue\DatabaseQueue::class));
 $container->singleton(Router::class);
 $container->singleton(MiddlewareResolver::class);
 $container->singleton(ErrorHandler::class);

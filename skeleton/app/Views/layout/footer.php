@@ -2,8 +2,9 @@
 
 /**
  * @file footer.php
- * @brief Shared page footer: include at the bottom of full-page views.
+ * @brief Shared page footer: include at the bottom of every full-page view.
  */
 ?>
+</main>
 </body>
 </html>

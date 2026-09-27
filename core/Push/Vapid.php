@@ -55,7 +55,7 @@ class Vapid
             throw new PushException("VAPID subject must be a 'mailto:' or 'https://' URI (push.vapid.subject).");
         }
         if ($publicKey === '' || $privateKey === '') {
-            throw new PushException('VAPID keys are not configured (push.vapid.public_key / private_key). Run `php bin/push.php vapid`.');
+            throw new PushException('VAPID keys are not configured (push.vapid.public_key / private_key). Run `php bin/frasm push:vapid`.');
         }
 
         $this->publicKey = Crypto::base64UrlDecode($publicKey);

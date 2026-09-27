@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * Web Push notifications (VAPID, RFC 8030/8291/8292)
  *
- * Setup: 1) `make vapid` and copy the printed keys into config/local.php,
- *        2) set 'enabled' => true, 3) `make migrate` (creates frasm_push_subscriptions),
+ * Setup: 1) `php bin/frasm push:vapid` and copy the printed keys into config/local.php,
+ *        2) set 'enabled' => true, 3) `php bin/frasm db:migrate` (creates frasm_push_subscriptions),
  *        4) include frasm_head() in the layout and call Frasm.push.subscribe() from a button.
  */
 return [
@@ -43,7 +43,7 @@ return [
     // Channels a new subscription joins when the client does not send its own list
     'default_channels' => [],
 
-    // Queue used by PushManager::queue() (processed by `php bin/queue.php work`)
+    // Queue used by PushManager::queue() (processed by `php bin/frasm queue:work`)
     'queue' => 'default',
 
     // Validity of signed tokens for background POST action buttons (seconds)

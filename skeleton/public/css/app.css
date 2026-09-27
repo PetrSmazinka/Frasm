@@ -1,0 +1,163 @@
+/*
+ * Frasm skeleton application styles.
+ * Belongs to your application: edit freely, framework updates never touch it.
+ */
+
+:root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --primary-text: #ffffff;
+    --success-bg: #ecfdf5;
+    --success-text: #047857;
+    --error-bg: #fef2f2;
+    --error-text: #b91c1c;
+    --info-bg: #eff6ff;
+    --info-text: #1d4ed8;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 4px 16px rgb(15 23 42 / 6%);
+    --frasm-progress-color: var(--primary);
+    color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0b1120;
+        --surface: #111827;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --border: #1f2937;
+        --primary: #818cf8;
+        --primary-hover: #a5b4fc;
+        --primary-text: #0b1120;
+        --success-bg: #052e26;
+        --success-text: #6ee7b7;
+        --error-bg: #3b0d0d;
+        --error-text: #fca5a5;
+        --info-bg: #0c1a3d;
+        --info-text: #93c5fd;
+        --shadow: none;
+    }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--primary); }
+a:hover { color: var(--primary-hover); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .75rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; }
+
+/* Layout -------------------------------------------------------------------- */
+
+.site-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.site-header__inner,
+.site-main {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+}
+
+.site-header__inner {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    height: 3.75rem;
+}
+
+.brand {
+    font-weight: 700;
+    color: var(--text);
+    text-decoration: none;
+    margin-right: auto;
+}
+
+.nav { display: flex; align-items: center; gap: 1.25rem; }
+.nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
+.nav a:hover, .nav a[aria-current="page"] { color: var(--text); }
+.nav form { margin: 0; }
+
+.site-main { padding-top: 2.5rem; padding-bottom: 4rem; }
+.lead { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+.muted { color: var(--muted); }
+
+/* Components ---------------------------------------------------------------- */
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.5rem;
+}
+
+.card--narrow { max-width: 24rem; margin: 0 auto; }
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    padding: .55rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.btn:hover { border-color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn--primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.btn--primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-text); }
+.btn--link { border: 0; background: none; padding: 0; color: var(--muted); font-weight: 500; }
+.btn--link:hover { color: var(--text); }
+.btn--block { width: 100%; }
+
+.alert { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1.5rem; }
+.alert--success { background: var(--success-bg); color: var(--success-text); }
+.alert--error { background: var(--error-bg); color: var(--error-text); }
+.alert--info { background: var(--info-bg); color: var(--info-text); }
+
+/* Forms --------------------------------------------------------------------- */
+
+.field { margin-bottom: 1.1rem; }
+.field label { display: block; font-size: .9rem; font-weight: 600; margin-bottom: .35rem; }
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="email"] {
+    width: 100%;
+    padding: .6rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+}
+.field input:focus { outline: 2px solid var(--primary); outline-offset: 1px; border-color: transparent; }
+.field__error { color: var(--error-text); font-size: .85rem; margin: .35rem 0 0; }
+.checkbox { display: flex; align-items: center; gap: .5rem; margin-bottom: 1.25rem; font-size: .95rem; }
+
+/* Live component demo ------------------------------------------------------- */
+
+.counter { display: flex; align-items: center; gap: 1rem; }
+.counter__value { font-size: 2rem; font-weight: 700; min-width: 3.5rem; font-variant-numeric: tabular-nums; }
+.counter__limit { color: var(--muted); margin-right: auto; }

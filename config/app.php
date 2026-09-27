@@ -15,7 +15,7 @@ return [
     'fallback_locale' => 'en',
 
     // Secret for HMAC signatures (live component state, push action tokens). Set it in config/local.php:
-    // generate with `php bin/key.php`.
+    // generate with `php bin/frasm key:generate`.
     'key' => '',
 
     // Reverse proxies (IPs or CIDR ranges) allowed to set X-Forwarded-For / X-Forwarded-Proto

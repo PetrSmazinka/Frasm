@@ -1,0 +1,87 @@
+Frasm License, Version 1.0
+
+Copyright (c) 2026 Petr Smazinka. All rights reserved.
+
+This license governs the use of the Frasm framework. It is a source-available,
+no-modification license; it is not an open-source license.
+
+
+1. Definitions
+
+"Framework" means all files distributed in this repository and in Frasm releases,
+except the Application Templates.
+
+"Application Templates" means the files in the "skeleton/" and "config/" directories,
+and the copies of them that the Frasm installer places into a project (in particular
+the "app/", "config/", "database/" and "public/css/" directories of a project).
+
+"Your Application" means software that you create and that uses the Framework,
+including your code in a project's "app/" directory.
+
+"You" means the individual or legal entity exercising the rights under this license.
+
+
+2. Grant of rights
+
+Subject to the terms of this license, the copyright holder grants You a worldwide,
+non-exclusive, royalty-free license to:
+
+  a) download, install and run the Framework, for any purpose, including commercial use;
+  b) use the Framework to develop, run and distribute Your Application;
+  c) make and distribute verbatim copies of the Framework, on its own or as part of
+     Your Application, provided that every copy includes this license unchanged.
+
+
+3. Application Templates
+
+You may use, copy, modify, merge, publish, distribute, sublicense and sell the
+Application Templates and works based on them, without restriction, as part of
+Your Application or otherwise.
+
+
+4. Restrictions
+
+Except as expressly permitted in sections 2 and 3, You may not:
+
+  a) modify, adapt, translate or otherwise create derivative works of the Framework;
+  b) distribute, publish or make available a modified version of the Framework;
+  c) remove or alter this license or any copyright notice contained in the Framework.
+
+
+5. What is not a modification
+
+The following uses do not modify the Framework and are permitted:
+
+  a) configuring the Framework through its configuration files, including
+     "config/local.php";
+  b) extending the Framework through its public interfaces, for example by extending
+     its classes, implementing its interfaces, registering services, middleware,
+     console commands, routes, controllers, components, jobs and migrations in
+     Your Application;
+  c) replacing the Framework with a newer verbatim release published by the
+     copyright holder.
+
+
+6. Ownership of Your Application
+
+This license does not grant the copyright holder any rights in Your Application.
+
+
+7. Termination
+
+Your rights under this license terminate automatically if You breach any of its
+terms. Sections 6, 8 and 9 survive termination.
+
+
+8. Disclaimer of warranty
+
+THE FRAMEWORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+
+9. Limitation of liability
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE FRAMEWORK OR THE USE OR OTHER DEALINGS IN THE FRAMEWORK.

@@ -15,6 +15,6 @@ return [
     'cache_path' => dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'cache' . DIRECTORY_SEPARATOR . 'routes.php',
 
     // Re-check controller file timestamps on each request (null = only when app.debug is on).
-    // Without validation, run `php bin/routes.php cache` (or `make routes-cache`) after every deploy.
+    // Without validation, run `php bin/frasm route:cache` after every deploy.
     'cache_validate' => null,
 ];

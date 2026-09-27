@@ -27,7 +27,7 @@ use Throwable;
  *  - Entries are buffered in memory and written with a single append per request (at shutdown,
  *    when the buffer exceeds 64 KiB, or immediately for critical and higher levels).
  *  - The log directory may live on tmpfs (e.g. /dev/shm/frasm/logs); archive() then moves the
- *    content to persistent storage (`php bin/logs.php archive` from cron).
+ *    content to persistent storage (`php bin/frasm logs:archive` from cron).
  */
 class Logger extends AbstractLogger
 {

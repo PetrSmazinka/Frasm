@@ -21,7 +21,7 @@ class AuthController extends BaseController
 {
     /**
      * @var string Bcrypt hash of a random string, verified when the user does not exist so that
-     *             response time does not reveal whether an account exists (cost 12 = bin/seed-admin.php on PHP 8.4+).
+     *             response time does not reveal whether an account exists (cost 12 = `bin/frasm db:seed` on PHP 8.4+).
      */
     private const DUMMY_PASSWORD_HASH = '$2y$12$FHyYIXEq/2bKZ90urZnu/OG5ETC/RdB7EvfR1qe3pSxHL1OaIGBS.';
 
@@ -49,7 +49,7 @@ class AuthController extends BaseController
         }
 
         return $this->view('auth/login', [
-            'pageTitle' => 'Sign In',
+            'pageTitle' => 'Sign in',
         ]);
     }
 
@@ -57,8 +57,8 @@ class AuthController extends BaseController
      * @brief Processes login attempts via POST.
      *
      * CSRF is verified by the global CsrfMiddleware; brute force is limited to 5 attempts
-     * per minute and client. Verifies credentials against password hashes, stores user state
-     * via Auth::login(), and manages flash feedback.
+     * per minute and client. Missing fields are reported by the validator (redirect back with
+     * $errors), wrong credentials by a flash message.
      *
      * @param Request $request Current HTTP request.
      * @return never
@@ -67,13 +67,13 @@ class AuthController extends BaseController
     #[Middleware('throttle:5,60')]
     public function login(Request $request): never
     {
-        $identifier = trim((string)$this->input('identifier'));
-        $password = (string)$this->input('password');
+        $credentials = $this->validate([
+            'identifier' => 'required|max:255',
+            'password'   => 'required|max:1024',
+        ], attributes: ['identifier' => 'username or email']);
 
-        if ($identifier === '' || $password === '') {
-            $this->flash('error', 'Please provide both your username/email and password.');
-            $this->redirect('/login');
-        }
+        $identifier = trim((string)$credentials['identifier']);
+        $password = (string)$credentials['password'];
 
         // 1. Fetch user record from persistent storage
         $user = User::findByIdentifier($identifier);
@@ -87,16 +87,12 @@ class AuthController extends BaseController
                 'ip'         => $request->ip(),
             ]);
 
-            $this->flash('error', 'Invalid credentials provided.');
+            $this->flash('error', 'Invalid username or password.');
             $this->redirect('/login');
         }
 
-        // 3. Parse MySQL SET permissions into an array of roles
-        $roles = User::parsePermissions((string)$user['permissions']);
-
-        // 4. Establish authenticated session and regenerate session ID
-        $remember = !empty($this->input('remember_me'));
-        Auth::login((int)$user['id'], $roles, $remember);
+        // 3. Establish authenticated session (regenerates the session ID)
+        Auth::login((int)$user['id'], User::parsePermissions((string)$user['permissions']), !empty($this->input('remember_me')));
 
         $this->logger->info('User {user_id} logged in.', ['user_id' => (int)$user['id'], 'ip' => $request->ip()]);
 
