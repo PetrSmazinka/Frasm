@@ -46,6 +46,7 @@ final class Application
         Commands\PushVapidCommand::class,
         Commands\PushSendCommand::class,
         Commands\TokenCreateCommand::class,
+        Commands\UserPasswordCommand::class,
         Commands\LogsArchiveCommand::class,
         Commands\PruneCommand::class,
     ];
@@ -62,6 +63,7 @@ final class Application
         'push'  => 'Web Push',
         'queue' => 'Queue',
         'route' => 'Routing',
+        'user'  => 'Users',
     ];
 
     /**

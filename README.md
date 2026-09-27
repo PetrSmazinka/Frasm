@@ -251,6 +251,7 @@ make db:reset ARGS=--help                        # help for one command
 | `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
 | `push:vapid`, `push:send` | Web Push |
 | `key:generate`, `token:create` | Application key, API tokens |
+| `user:password` | Set a user's password (asked without echo, or `--generate`) |
 | `logs:archive`, `prune` | Maintenance |
 
 Your own commands go to `app/Commands/*Command.php` and are picked up automatically.

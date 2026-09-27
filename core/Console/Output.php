@@ -69,7 +69,7 @@ final class Output
      */
     public function line(string $message = ''): void
     {
-        fwrite($this->stdout, $message . PHP_EOL);
+        @fwrite($this->stdout, $message . PHP_EOL);
     }
 
     /**
@@ -113,7 +113,7 @@ final class Output
      */
     public function warning(string $message): void
     {
-        fwrite($this->stderr, $this->style('!', 'yellow') . ' ' . $message . PHP_EOL);
+        @fwrite($this->stderr, $this->style('!', 'yellow') . ' ' . $message . PHP_EOL);
     }
 
     /**
@@ -124,7 +124,7 @@ final class Output
      */
     public function error(string $message): void
     {
-        fwrite($this->stderr, $this->style('✖', 'red') . ' ' . $message . PHP_EOL);
+        @fwrite($this->stderr, $this->style('✖', 'red') . ' ' . $message . PHP_EOL);
     }
 
     /**
@@ -181,10 +181,41 @@ final class Output
             return $default;
         }
 
-        fwrite($this->stdout, $this->style('?', 'yellow') . " {$question} " . ($default ? '[Y/n]' : '[y/N]') . ' ');
+        @fwrite($this->stdout, $this->style('?', 'yellow') . " {$question} " . ($default ? '[Y/n]' : '[y/N]') . ' ');
         $answer = strtolower(trim((string)fgets(STDIN)));
 
         return $answer === '' ? $default : in_array($answer, ['y', 'yes'], true);
+    }
+
+    /**
+     * @brief Reads a line without echoing it on the terminal (passwords).
+     *
+     * When STDIN is not a terminal (piped input), the line is read as is and no prompt is shown.
+     *
+     * @param string $question Prompt text.
+     * @return string|null Entered value without the line break, or null on end of input.
+     */
+    public function secret(string $question): ?string
+    {
+        $interactive = function_exists('stream_isatty') && @stream_isatty(STDIN);
+
+        if (!$interactive) {
+            $line = fgets(STDIN);
+            return $line === false ? null : rtrim($line, "\r\n");
+        }
+
+        @fwrite($this->stdout, $this->style('?', 'yellow') . " {$question} ");
+
+        $state = trim((string)shell_exec('stty -g 2>/dev/null'));
+        shell_exec('stty -echo 2>/dev/null');
+        try {
+            $line = fgets(STDIN);
+        } finally {
+            shell_exec($state !== '' ? 'stty ' . escapeshellarg($state) . ' 2>/dev/null' : 'stty echo 2>/dev/null');
+            @fwrite($this->stdout, PHP_EOL);
+        }
+
+        return $line === false ? null : rtrim($line, "\r\n");
     }
 
     /**
