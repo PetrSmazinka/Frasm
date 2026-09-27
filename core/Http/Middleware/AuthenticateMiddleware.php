@@ -68,7 +68,9 @@ class AuthenticateMiddleware implements MiddlewareInterface
             return $response;
         }
 
-        if (!Auth::check()) {
+        if (Auth::check()) {
+            Auth::refreshIdentity();
+        } else {
             Auth::attemptRememberLogin($request->cookie(Auth::rememberCookieName()));
         }
 

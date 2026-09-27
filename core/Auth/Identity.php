@@ -25,10 +25,13 @@ final class Identity
      *
      * @param int|string $id Primary key of the user (or service identifier).
      * @param array<string> $roles Granted roles.
+     * @param string|null $stamp Credential stamp: changes whenever the password changes, which ends
+     *                           the user's other sessions (null = not supported by the provider).
      */
     public function __construct(
         public readonly int|string $id,
-        array $roles = []
+        array $roles = [],
+        public readonly ?string $stamp = null
     ) {
         $normalized = [];
         foreach ($roles as $role) {

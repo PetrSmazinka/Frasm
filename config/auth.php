@@ -30,6 +30,12 @@ return [
      */
     'api_audit_log' => true,
 
+    /*
+     * Re-read the signed-in user on every request (one primary-key query): role changes apply at once,
+     * deleted users are signed out, and a password change ends the user's other sessions.
+     */
+    'refresh_identity' => true,
+
     'remember_cookie' => 'frasm_remember',
     'remember_lifetime_days' => 30,
 

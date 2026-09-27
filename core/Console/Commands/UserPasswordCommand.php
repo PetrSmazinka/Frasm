@@ -8,6 +8,7 @@ use Core\Config\Config;
 use Core\Console\Command;
 use Core\Console\Input;
 use Core\Console\Output;
+use Core\Console\PasswordPrompt;
 use Core\DB\DB;
 
 /**
@@ -25,6 +26,8 @@ use Core\DB\DB;
  */
 final class UserPasswordCommand extends Command
 {
+    use PasswordPrompt;
+
     /**
      * @var int Minimum password length.
      */
@@ -104,7 +107,7 @@ final class UserPasswordCommand extends Command
             return 1;
         }
 
-        $password = $input->flag('generate') ? $this->generate() : $this->ask($output);
+        $password = $input->flag('generate') ? $this->generatePassword() : $this->askPassword($output, self::MIN_LENGTH);
         if ($password === null) {
             return 1;
         }
@@ -123,44 +126,5 @@ final class UserPasswordCommand extends Command
         }
 
         return 0;
-    }
-
-    /**
-     * @brief Asks for the password twice (or reads it once from piped STDIN) and validates it.
-     *
-     * @param Output $output Console output.
-     * @return string|null Password, or null when input is missing or invalid.
-     */
-    private function ask(Output $output): ?string
-    {
-        $interactive = function_exists('stream_isatty') && @stream_isatty(STDIN);
-
-        $password = $output->secret('New password:');
-        if ($password === null || $password === '') {
-            $output->error('No password given.');
-            return null;
-        }
-
-        if (mb_strlen($password) < self::MIN_LENGTH) {
-            $output->error('The password must have at least ' . self::MIN_LENGTH . ' characters.');
-            return null;
-        }
-
-        if ($interactive && $output->secret('Repeat the password:') !== $password) {
-            $output->error('The passwords do not match.');
-            return null;
-        }
-
-        return $password;
-    }
-
-    /**
-     * @brief Generates a random URL-safe password.
-     *
-     * @return string 16 characters (96 bits of entropy).
-     */
-    private function generate(): string
-    {
-        return rtrim(strtr(base64_encode(random_bytes(12)), '+/', '-_'), '=');
     }
 }

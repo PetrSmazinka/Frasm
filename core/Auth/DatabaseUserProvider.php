@@ -28,7 +28,7 @@ class DatabaseUserProvider implements UserProviderInterface
     public function findIdentityById(int|string $id): ?Identity
     {
         $user = DB::getInstance()->selectOne(
-            'SELECT `id`, `permissions` FROM `frasm_users` WHERE `id` = ? LIMIT 1',
+            'SELECT `id`, `permissions`, `password_hash` FROM `frasm_users` WHERE `id` = ? LIMIT 1',
             [$id]
         );
 
@@ -36,7 +36,12 @@ class DatabaseUserProvider implements UserProviderInterface
             return null;
         }
 
-        return new Identity((int)$user['id'], self::parseRoles((string)$user['permissions']));
+        return new Identity(
+            (int)$user['id'],
+            self::parseRoles((string)$user['permissions']),
+            // A digest of the password hash: it changes with the password and reveals nothing about it
+            substr(hash('sha256', (string)$user['password_hash']), 0, 32)
+        );
     }
 
     /**

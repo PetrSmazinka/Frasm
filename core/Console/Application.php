@@ -50,7 +50,9 @@ final class Application
         Commands\PushVapidCommand::class,
         Commands\PushSendCommand::class,
         Commands\TokenCreateCommand::class,
+        Commands\UserCreateCommand::class,
         Commands\UserPasswordCommand::class,
+        Commands\UserRolesCommand::class,
         Commands\LogsArchiveCommand::class,
         Commands\PruneCommand::class,
     ];

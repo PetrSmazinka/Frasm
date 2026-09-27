@@ -242,6 +242,12 @@ class Session
             return false;
         }
 
+        // After session_write_close() and sent headers (event streams rendering views), the session
+        // cannot be started again; the data read earlier stays available read-only.
+        if (session_status() !== PHP_SESSION_ACTIVE && headers_sent()) {
+            return isset($_SESSION);
+        }
+
         self::start();
         return session_status() === PHP_SESSION_ACTIVE;
     }

@@ -27,6 +27,7 @@ class Auth
 {
     private const SESSION_USER_ID = '_auth_user_id';
     private const SESSION_ROLES = '_auth_user_roles';
+    private const SESSION_STAMP = '_auth_stamp';
 
     /**
      * @var int Minimum number of seconds between two `last_used_at` writes of the same API token.
@@ -50,6 +51,7 @@ class Auth
     {
         Session::regenerate(true);
         Session::set(self::SESSION_USER_ID, $userId);
+        self::storeStamp($userId);
 
         $normalizedRoles = is_array($roles) ? array_values($roles) : [$roles];
         Session::set(self::SESSION_ROLES, $normalizedRoles);
@@ -70,8 +72,99 @@ class Auth
 
         Session::remove(self::SESSION_USER_ID);
         Session::remove(self::SESSION_ROLES);
+        Session::remove(self::SESSION_STAMP);
         Session::regenerate(true);
         self::$statelessIdentity = null;
+    }
+
+    /**
+     * @brief Re-reads the signed-in user from the user provider (once per request, see AuthenticateMiddleware).
+     *
+     * Roles changed by an administrator apply immediately, a deleted user is signed out, and so are
+     * all sessions of a user whose password changed elsewhere (credential stamp). Disabled with
+     * auth.refresh_identity = false. When the provider fails (database down), the session is kept.
+     *
+     * @return void
+     */
+    public static function refreshIdentity(): void
+    {
+        if (self::$statelessIdentity !== null || !(bool)Config::get('auth.refresh_identity', true)) {
+            return;
+        }
+
+        $id = Session::get(self::SESSION_USER_ID);
+        if ($id === null) {
+            return;
+        }
+
+        try {
+            $identity = self::userProvider()->findIdentityById($id);
+        } catch (\Throwable $e) {
+            Log::warning('Cannot refresh the signed-in identity: ' . $e->getMessage());
+            return;
+        }
+
+        if ($identity === null) {
+            self::logout();
+            return;
+        }
+
+        if ($identity->stamp !== null) {
+            $stored = Session::get(self::SESSION_STAMP);
+            if (!is_string($stored)) {
+                // Sessions started before stamps were recorded at login
+                Session::set(self::SESSION_STAMP, $identity->stamp);
+            } elseif (!hash_equals($stored, $identity->stamp)) {
+                self::logout();
+                return;
+            }
+        }
+
+        if ($identity->roles !== self::roles()) {
+            Session::set(self::SESSION_ROLES, $identity->roles);
+        }
+    }
+
+    /**
+     * @brief Keeps the current session valid after the signed-in user changed their own password
+     *        (other sessions of the user end on their next request).
+     *
+     * @return void
+     */
+    public static function acceptCredentialChange(): void
+    {
+        $id = Session::get(self::SESSION_USER_ID);
+        if ($id === null) {
+            return;
+        }
+
+        Session::regenerate(true);
+        self::storeStamp($id);
+    }
+
+    /**
+     * @brief Records the credential stamp of the user in the session (at login and after an own
+     *        password change), so a later password change elsewhere ends this session.
+     *
+     * @param int|string $userId User ID.
+     * @return void
+     */
+    protected static function storeStamp(int|string $userId): void
+    {
+        Session::remove(self::SESSION_STAMP);
+        if (!(bool)Config::get('auth.refresh_identity', true)) {
+            return;
+        }
+
+        try {
+            $stamp = self::userProvider()->findIdentityById($userId)?->stamp;
+        } catch (\Throwable $e) {
+            Log::warning('Cannot read the credential stamp: ' . $e->getMessage());
+            return;
+        }
+        if ($stamp !== null) {
+            Session::set(self::SESSION_STAMP, $stamp);
+        }
     }
 
     /**

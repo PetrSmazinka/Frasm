@@ -12,7 +12,8 @@ fragments to the browser. No Composer, no build step, no Node.js.
 - **Attribute routing** – `#[Get('/users/{id}')]` on controller methods, typed route parameters, compiled route cache.
 - **Dependency injection** – autowiring container for controllers, commands and services.
 - **Middleware** – PSR-15 style pipeline: CSRF, authentication, authorization, CORS, rate limiting.
-- **Authentication** – sessions, "remember me", Bearer API tokens for machine-to-machine access.
+- **Authentication** – sessions, "remember me", Bearer API tokens for machine-to-machine access; role changes,
+  password changes and deleted accounts take effect in signed-in sessions immediately.
 - **Validation** – declarative rules (`'required|email|max:255'`), form errors redirected back automatically.
 - **HTML over the wire** – navigation without page reloads, live components, Server-Sent Events.
 - **Web Push** – VAPID and payload encryption implemented natively, channels, action buttons.
@@ -330,7 +331,7 @@ make db:reset ARGS=--help                        # help for one command
 | `push:vapid`, `push:send` | Web Push |
 | `pwa:build` | Web app manifest and icons |
 | `key:generate`, `token:create` | Application key, API tokens |
-| `user:password` | Set a user's password (asked without echo, or `--generate`) |
+| `user:create`, `user:password`, `user:roles` | User accounts: create, set the password (asked without echo, or `--generate`), change roles |
 | `logs:archive`, `prune` | Maintenance |
 
 Your own commands go to `app/Commands/*Command.php` and are picked up automatically.
