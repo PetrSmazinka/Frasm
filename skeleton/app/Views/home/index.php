@@ -23,6 +23,6 @@ require FRASM_APP_DIR . '/Views/layout/header.php';
 <ul>
     <li>Controllers live in <code>app/Controllers</code>, views in <code>app/Views</code>.</li>
     <li>Open the <a href="/about">About page</a>: navigation swaps the page without a full reload.</li>
-    <li>Run <code>php bin/frasm list</code> to see the command-line tools.</li>
+    <li>Run <code>make help</code> to see the command-line tools.</li>
 </ul>
 <?php require FRASM_APP_DIR . '/Views/layout/footer.php'; ?>

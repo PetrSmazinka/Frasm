@@ -43,9 +43,9 @@ administrator password, and prints the remaining steps:
 ```bash
 cd /var/www/myapp
 # 1. Enter your database credentials in config/local.php
-php bin/frasm db:migrate     # create the tables
-php bin/frasm db:seed        # create the administrator account
-make serve                   # preview at http://127.0.0.1:8000
+make migrate    # create the tables
+make seed       # create the administrator account
+make serve      # preview at http://127.0.0.1:8000
 ```
 
 Installer options:
@@ -78,8 +78,8 @@ Run the installer as a member of the `www-data` group (or as root) and it sets t
 ## Updating
 
 ```bash
-make update                     # latest master
-make update REF=v0.2.0 MIGRATE=1  # a specific version, and apply database changes
+make update                        # latest master
+make update REF=v0.2.0 MIGRATE=1   # a specific version, and apply database changes
 ```
 
 An update replaces only the framework (`core/`, `bin/`, `public/index.php`, `public/js/frasm-*.js`, …).
@@ -195,7 +195,7 @@ public function stream(): Response
 ### Web Push notifications
 
 ```bash
-php bin/frasm push:vapid    # prints the keys for config/local.php
+make push:vapid    # prints the keys for config/local.php
 ```
 
 ```php
@@ -214,33 +214,53 @@ use Core\Queue\Queue;
 Queue::push(new GenerateReportJob($reportId));
 ```
 
-Process jobs with `php bin/frasm queue:work` (as a service) or `php bin/frasm queue:work --once` (from cron).
+Process jobs with `make worker` while developing; in production run the worker from systemd or cron
+(see [Automation](#automation)).
 
 ## Command-line interface
 
+Everything is available through `make`. The most common tasks have short names; any other Frasm command
+is run as `make <command>`, with its arguments in `ARGS`:
+
 ```bash
-php bin/frasm list          # all commands
-php bin/frasm help db:reset # help for one command
+make help                                        # shortcuts and all commands
+make migrate                                     # shortcut for db:migrate
+make db:rollback                                 # any Frasm command
+make token:create ARGS="home-assistant --days=365"
+make db:reset ARGS=--help                        # help for one command
 ```
 
 | Command | Purpose |
 |---|---|
 | `serve` | Development server |
-| `db:migrate`, `db:rollback`, `db:reset`, `db:seed` | Database schema and administrator account |
-| `route:list`, `route:cache`, `route:clear` | Route table and cache |
-| `queue:work`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
+| `migrate`, `seed`, `fresh`, `db:rollback`, `db:reset` | Database schema and administrator account |
+| `routes`, `cache`, `route:clear` | Route table and route cache |
+| `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
 | `push:vapid`, `push:send` | Web Push |
 | `key:generate`, `token:create` | Application key, API tokens |
-| `logs:archive`, `prune` | Maintenance (cron) |
+| `logs:archive`, `prune` | Maintenance |
 
-`make help` lists shortcuts for the most common tasks. Your own commands go to `app/Commands/*Command.php`.
+Your own commands go to `app/Commands/*Command.php` and are picked up automatically.
+
+### Automation
+
+`make` is meant for people. Cron jobs and services call the CLI directly with `php bin/frasm <command>`:
+`make` may not be installed on a server, and a systemd service must receive signals itself to stop cleanly.
+
+```text
+# crontab -u www-data -e
+* * * * *   cd /var/www/myapp && php bin/frasm queue:work --once --max-time=55
+30 3 * * *  cd /var/www/myapp && php bin/frasm prune
+```
+
+A systemd unit for a permanently running queue worker is shown in [docs/raspberry-pi.md](docs/raspberry-pi.md#queue-worker-as-a-systemd-service).
 
 ## Production checklist
 
 - `'debug' => false` in `config/local.php`
-- `php bin/frasm route:cache` after every deployment
+- `make cache` after every deployment
 - A queue worker (systemd service or cron) if you use the queue or queued push notifications
-- `php bin/frasm prune` daily from cron
+- `php bin/frasm prune` daily from cron (see [Automation](#automation))
 
 Running on a Raspberry Pi? See [docs/raspberry-pi.md](docs/raspberry-pi.md) for SD-card friendly settings.
 

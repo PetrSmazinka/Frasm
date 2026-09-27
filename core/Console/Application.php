@@ -120,7 +120,7 @@ final class Application
             if ($suggestions !== []) {
                 $this->output->comment('  Did you mean: ' . implode(', ', $suggestions) . '?');
             }
-            $this->output->comment('  Run `php bin/frasm list` to see all commands.');
+            $this->output->comment('  Run `' . ($this->viaMake() ? 'make help' : 'php bin/frasm list') . '` to see all commands.');
             return 1;
         }
 
@@ -138,7 +138,7 @@ final class Application
                 $input = Input::parse($arguments, $command->arguments(), $command->options());
             } catch (CoreException $e) {
                 $this->output->error($e->getMessage());
-                $this->output->comment("  See: php bin/frasm help {$name}");
+                $this->output->comment('  See: ' . $this->usage($name, '--help'));
                 return 1;
             }
 
@@ -175,8 +175,13 @@ final class Application
     {
         $this->output->title('Frasm ' . Frasm::VERSION);
         $this->output->line();
-        $this->output->line('Usage: php bin/frasm <command> [arguments] [--options]');
-        $this->output->comment('       php bin/frasm help <command>');
+        if ($this->viaMake()) {
+            $this->output->line('Usage: make <command> ARGS="[arguments] [--options]"');
+            $this->output->comment('       make <command> ARGS=--help');
+        } else {
+            $this->output->line('Usage: php bin/frasm <command> [arguments] [--options]');
+            $this->output->comment('       php bin/frasm help <command>');
+        }
 
         $groups = [];
         foreach ($this->commands as $name => $class) {
@@ -205,13 +210,14 @@ final class Application
      */
     private function renderHelp(Command $command): void
     {
-        $usage = 'php bin/frasm ' . $command->name();
+        $parameters = [];
         foreach (array_keys($command->arguments()) as $argument) {
-            $usage .= str_ends_with($argument, '?') ? ' [<' . rtrim($argument, '?') . '>]' : " <{$argument}>";
+            $parameters[] = str_ends_with($argument, '?') ? '[<' . rtrim($argument, '?') . '>]' : "<{$argument}>";
         }
         if ($command->options() !== []) {
-            $usage .= ' [--options]';
+            $parameters[] = '[--options]';
         }
+        $usage = $this->usage($command->name(), implode(' ', $parameters));
 
         $this->output->title($command->description());
         $this->output->line();
@@ -240,6 +246,32 @@ final class Application
                 $this->output->line($line);
             }
         }
+    }
+
+    /**
+     * @brief Checks whether the CLI was started through the project Makefile (make sets MAKELEVEL).
+     *
+     * @return bool
+     */
+    private function viaMake(): bool
+    {
+        return getenv('MAKELEVEL') !== false;
+    }
+
+    /**
+     * @brief Formats an invocation in the style the user is using (make or php bin/frasm).
+     *
+     * @param string $command Command name.
+     * @param string $parameters Arguments and options.
+     * @return string
+     */
+    private function usage(string $command, string $parameters = ''): string
+    {
+        if ($this->viaMake()) {
+            return "make {$command}" . ($parameters === '' ? '' : " ARGS=\"{$parameters}\"");
+        }
+
+        return trim("php bin/frasm {$command} {$parameters}");
     }
 
     /**

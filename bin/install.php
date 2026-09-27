@@ -428,6 +428,10 @@ function main(array $argv): void
     $frasm = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/frasm");
     $steps = [];
 
+    // Suggest the Makefile shortcuts only when make is installed
+    $hasMake = trim((string)shell_exec('command -v make 2>/dev/null')) !== '';
+    $task = static fn(string $shortcut, string $command): string => $hasMake ? "make {$shortcut}" : "php bin/frasm {$command}";
+
     if ($requiredCommands !== []) {
         console()->warning("The web server group '{$webUser}' cannot read config/local.php or write storage/ yet");
         $user = function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'USER') : 'USER';
@@ -446,7 +450,7 @@ function main(array $argv): void
                 fail('Database migration failed.');
             }
         } else {
-            $steps[] = ['Apply database changes:', ["cd {$target} && php bin/frasm db:migrate"]];
+            $steps[] = ['Apply database changes:', ["cd {$target} && " . $task('migrate', 'db:migrate')]];
         }
         $steps[] = ['Reload PHP (OPcache) and restart the queue worker if it runs as a service:', [
             'sudo systemctl reload apache2 && sudo systemctl restart frasm-queue',
@@ -460,11 +464,11 @@ function main(array $argv): void
 
     $steps[] = ["Set the database credentials in {$target}/config/local.php, then:", [
         "cd {$target}",
-        'php bin/frasm db:migrate',
-        'php bin/frasm db:seed',
+        $task('migrate', 'db:migrate'),
+        $task('seed', 'db:seed'),
     ]];
     $steps[] = ["Point the web server's DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite),", [
-        'or preview locally: make serve',
+        'or preview locally: ' . $task('serve', 'serve'),
     ]];
 
     console()->line();

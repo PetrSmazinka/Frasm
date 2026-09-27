@@ -19,7 +19,7 @@ $fieldError = static function (string $field) use ($errors): string {
 ?>
 <div class="card card--narrow">
     <h1>Sign in</h1>
-    <p class="muted">Use the administrator account created by <code>php bin/frasm db:seed</code>.</p>
+    <p class="muted">Use the administrator account created by <code>make seed</code>.</p>
 
     <form method="post" action="/login">
         <?= $csrf_field ?>
