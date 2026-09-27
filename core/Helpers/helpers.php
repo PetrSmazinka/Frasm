@@ -23,6 +23,28 @@ if (!function_exists('__')) {
     }
 }
 
+if (!function_exists('asset')) {
+    /**
+     * @brief Returns the URL of an application asset from app/Assets, versioned by its modification time.
+     *
+     * Example: <link rel="stylesheet" href="<?= asset('css/app.css') ?>"> gives
+     * "/assets/css/app.css?v=6718a3f2". The version changes whenever the file changes, so browsers
+     * may cache assets for a year (see Core\Http\AssetServer).
+     *
+     * @param string $path Path inside app/Assets.
+     * @return string URL, HTML-safe (no characters that need escaping in an attribute).
+     */
+    function asset(string $path): string
+    {
+        $container = \Core\Container\Container::getInstance();
+        $request = $container->bound(\Core\Http\Request::class)
+            ? $container->get(\Core\Http\Request::class)
+            : \Core\Http\Request::fromGlobals();
+
+        return \Core\Http\AssetServer::url($path, $request->basePath(), FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Assets');
+    }
+}
+
 if (!function_exists('frasm_head')) {
     /**
      * @brief Returns the framework <head> markup: base path, CSRF token, Web Push key and client scripts.

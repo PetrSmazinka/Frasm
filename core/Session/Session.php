@@ -238,14 +238,15 @@ class Session
      */
     protected static function resume(): bool
     {
-        if (!self::exists()) {
-            return false;
-        }
-
         // After session_write_close() and sent headers (event streams rendering views), the session
-        // cannot be started again; the data read earlier stays available read-only.
+        // cannot be started again; the data read earlier stays available read-only. Checked before
+        // exists(): a session started in this request (remember-me login) has no cookie in the request.
         if (session_status() !== PHP_SESSION_ACTIVE && headers_sent()) {
             return isset($_SESSION);
+        }
+
+        if (!self::exists()) {
+            return false;
         }
 
         self::start();

@@ -13,7 +13,7 @@ except the Application Templates.
 
 "Application Templates" means the files in the "skeleton/" and "config/" directories,
 and the copies of them that the Frasm installer places into a project (in particular
-the "app/", "config/", "database/" and "public/css/" directories of a project).
+the "app/", "config/" and "database/" directories of a project).
 
 "Your Application" means software that you create and that uses the Framework,
 including your code in a project's "app/" directory.

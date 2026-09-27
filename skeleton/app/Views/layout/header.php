@@ -27,7 +27,7 @@ $navLink = static function (string $path, string $label) use ($currentPath): str
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars(($pageTitle ?? 'Home') . ' · Frasm', ENT_QUOTES, 'UTF-8') ?></title>
-    <link rel="stylesheet" href="/css/app.css?v=<?= filemtime(FRASM_ROOT_DIR . '/public/css/app.css') ?>" data-frasm-track>
+    <link rel="stylesheet" href="<?= asset('css/app.css') ?>" data-frasm-track>
     <?= frasm_head() ?>
 </head>
 <body>

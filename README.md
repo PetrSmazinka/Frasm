@@ -106,10 +106,10 @@ files are added; changed defaults of existing ones are only reported.
 
 ```text
 myapp/
-├── app/                  your code: Controllers, Models, Views, Components, Commands
+├── app/                  your code: Controllers, Models, Views, Components, Commands, Assets (CSS, JS)
 ├── config/               configuration; config/local.php holds secrets and per-server overrides
 ├── database/migrations/  your database migrations
-├── public/               document root (index.php, assets)
+├── public/               document root: the framework's front controller and scripts, your images
 ├── storage/              logs and caches (writable by the web server)
 ├── core/                 the framework – do not edit, replaced on update
 └── bin/frasm             command-line interface
@@ -160,6 +160,20 @@ Actions may return a string (HTML), an array (JSON) or a `Core\Http\Response`.
 Views are plain PHP templates in `app/Views`. Put `<?= frasm_head() ?>` in the `<head>` of your layout:
 links and forms then load without a full page reload, with a progress bar and working back/forward
 buttons. Use `data-frasm-nav="false"` to opt a link out, or `data-frasm-target="#id"` to replace just one element.
+
+### Stylesheets and scripts
+
+Your CSS and JavaScript belong to `app/Assets` – `public/` is the framework's. Link them with `asset()`:
+
+```php
+<link rel="stylesheet" href="<?= asset('css/app.css') ?>" data-frasm-track>
+<script src="<?= asset('js/app.js') ?>" defer data-frasm-track></script>
+```
+
+`asset()` adds a version derived from the file's modification time (`/assets/css/app.css?v=…`), so browsers
+cache the file for a year and fetch it again only after it changes. Assets are served before the framework
+boots (no session, routing or database work); only common web file types are served. `data-frasm-track`
+makes a deployment of changed assets reload open pages instead of mixing old and new code.
 
 ### Live components
 

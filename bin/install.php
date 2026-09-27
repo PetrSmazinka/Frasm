@@ -483,12 +483,11 @@ function main(array $argv): void
     $adminPassword = null;
     if (!$update) {
         if (isset($options['no-example'])) {
-            foreach (['app/Controllers', 'app/Models', 'app/Views', 'app/Components'] as $directory) {
+            foreach (['app/Controllers', 'app/Models', 'app/Views', 'app/Components', 'app/Assets/css', 'app/Assets/js'] as $directory) {
                 mkdir("{$target}/{$directory}", 0755, true);
             }
         } else {
             copyDirectory("{$source}/skeleton/app", "{$target}/app");
-            copyDirectory("{$source}/skeleton/public", "{$target}/public");
         }
         copyDirectory("{$source}/skeleton/database", "{$target}/database");
         copy("{$source}/skeleton/gitignore", "{$target}/.gitignore");

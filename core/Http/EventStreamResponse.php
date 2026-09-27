@@ -57,6 +57,9 @@ class EventStreamResponse extends Response
         $duration = $this->maxDuration ?? (int)Config::get('sse.max_duration', 300);
 
         if (session_status() === PHP_SESSION_ACTIVE) {
+            // Views rendered by the producer need the CSRF token, but the session is read-only from
+            // here on: create the token now (a remember-me login in this request starts without one)
+            \Core\Security\Csrf::token();
             session_write_close();
         }
         if (function_exists('apache_setenv')) {
