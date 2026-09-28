@@ -2,7 +2,8 @@
  * @file frasm-sw.js
  * @brief Frasm service worker: displays Web Push notifications and handles clicks and action buttons.
  *
- * Served from the web root so its scope covers the whole site. Applications with their own
+ * Served from the web root, so it may be registered for the whole site or for a part of it: each
+ * installable app (config pwa.apps) registers it with its own scope. Applications with their own
  * service worker can reuse this logic via `importScripts('/frasm-sw.js')`.
  *
  * Payload (JSON, see Core\Push\PushMessage): title, body, url, icon, tag, data, actions,

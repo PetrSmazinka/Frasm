@@ -1,4 +1,1 @@
-# Secrets and runtime data of a Frasm application
-/config/local.php
-/storage/*
-!/storage/.gitkeep
+# Your own rules (the framework, generated files and secrets are ignored by the block above)

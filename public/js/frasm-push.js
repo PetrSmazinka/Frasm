@@ -59,13 +59,52 @@
         return response.status === 204 ? null : response.json();
     };
 
+    /**
+     * @brief Waits until a registration has an active worker (navigator.serviceWorker.ready would wait
+     *        for the registration controlling the page, which may be a different app's one).
+     */
+    const waitUntilActive = (reg) => new Promise((resolve) => {
+        if (reg.active) {
+            resolve(reg);
+            return;
+        }
+        const worker = reg.installing || reg.waiting;
+        worker?.addEventListener('statechange', () => {
+            if (worker.state === 'activated') {
+                resolve(reg);
+            }
+        });
+    });
+
     const currentSubscription = async () => {
-        const reg = await navigator.serviceWorker.getRegistration(`${basePath()}/`);
+        const reg = await ownRegistration();
         return reg ? reg.pushManager.getSubscription() : null;
     };
 
+    /**
+     * @brief Scope of the service worker registration of this page's app (frasm-sw-scope, see frasm_head()).
+     *        Each installable app has its own registration and therefore its own push subscription.
+     */
+    const scope = () => meta('frasm-sw-scope') || `${basePath()}/`;
+
+    /**
+     * @brief Returns the registration with exactly this app's scope (getRegistration() would also
+     *        return a registration of an enclosing scope, i.e. another app's subscription).
+     */
+    const ownRegistration = async () => {
+        const wanted = new URL(scope(), location.href).href;
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        return registrations.find((reg) => reg.scope === wanted) || null;
+    };
+
+    /**
+     * @brief Adds the app of this page (meta frasm-push-app) to a subscription, so the server can
+     *        send notifications about a part of the site only to that part's app.
+     */
+    const withApp = (subscription) => ({ ...subscription, app: meta('frasm-push-app') });
+
     const registration = () =>
-        navigator.serviceWorker.register(`${basePath()}${meta('frasm-push-sw') || '/frasm-sw.js'}`);
+        navigator.serviceWorker.register(`${basePath()}${meta('frasm-push-sw') || '/frasm-sw.js'}`, { scope: scope() });
 
     const publicKey = async () => {
         const fromMeta = meta('frasm-push-key');
@@ -100,7 +139,7 @@
             }
 
             const reg = await registration();
-            await navigator.serviceWorker.ready;
+            await waitUntilActive(reg);
 
             let subscription = await reg.pushManager.getSubscription();
             if (!subscription) {
@@ -110,7 +149,7 @@
                 });
             }
 
-            const body = subscription.toJSON();
+            const body = withApp(subscription.toJSON());
             if (Array.isArray(options.channels)) {
                 body.channels = options.channels;
             }
@@ -146,7 +185,7 @@
                 return;
             }
 
-            const reg = await navigator.serviceWorker.getRegistration(`${basePath()}/`);
+            const reg = await ownRegistration();
             const subscription = reg ? await reg.pushManager.getSubscription() : null;
             if (!subscription) {
                 return;
@@ -164,7 +203,7 @@
                 return false;
             }
 
-            const reg = await navigator.serviceWorker.getRegistration(`${basePath()}/`);
+            const reg = await ownRegistration();
             return !!(reg && (await reg.pushManager.getSubscription()));
         },
 
@@ -173,10 +212,10 @@
                 return;
             }
 
-            const reg = await navigator.serviceWorker.getRegistration(`${basePath()}/`);
+            const reg = await ownRegistration();
             const subscription = reg ? await reg.pushManager.getSubscription() : null;
             if (subscription) {
-                await request('POST', subscription.toJSON());
+                await request('POST', withApp(subscription.toJSON()));
             }
         },
     };
@@ -194,13 +233,13 @@
     const autoSync = async () => {
         try {
             const reg = Frasm.push.permission() === 'granted'
-                ? await navigator.serviceWorker.getRegistration(`${basePath()}/`)
+                ? await ownRegistration()
                 : null;
             const subscription = reg ? await reg.pushManager.getSubscription() : null;
             if (!subscription || sessionStorage.getItem('frasm-push-synced') === subscription.endpoint) {
                 return;
             }
-            await request('POST', subscription.toJSON());
+            await request('POST', withApp(subscription.toJSON()));
             sessionStorage.setItem('frasm-push-synced', subscription.endpoint);
         } catch (e) {
             // Not logged in, push disabled or storage unavailable: retry on the next page load

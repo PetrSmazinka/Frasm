@@ -102,6 +102,27 @@ An update replaces only the framework (`core/`, `bin/`, `public/index.php`, `pub
 Your `app/`, `database/`, `storage/` and `config/local.php` are never touched. Missing configuration
 files are added; changed defaults of existing ones are only reported.
 
+## Version control and restoring a project
+
+The generated `.gitignore` keeps the framework out of your repository, so it holds only your application:
+`app/`, `database/`, `config/`, your files in `public/` and `.frasm-version`. The installer maintains the
+block between `# >>> frasm` and `# <<< frasm` on every update; put your own rules below it.
+
+`config/local.php` is ignored as well – it holds the application key and passwords. Back it up separately.
+
+To bring a project back from its repository, clone it and let the installer add the framework of the
+version recorded in `.frasm-version`:
+
+```bash
+git clone <your-project-repo> /var/www/myapp && cd /var/www/myapp
+cp /path/to/backup/local.php config/local.php
+wget -qO install.sh https://raw.githubusercontent.com/PetrSmazinka/Frasm/master/install.sh
+bash install.sh --restore --migrate .
+```
+
+Without a backed-up `config/local.php` the installer creates a new one (new application key); enter the
+database credentials, then run `make migrate`. The PWA manifest and icons are regenerated from the configuration.
+
 ## Project structure
 
 ```text
@@ -109,7 +130,7 @@ myapp/
 ├── app/                  your code: Controllers, Models, Views, Components, Commands, Assets (CSS, JS)
 ├── config/               configuration; config/local.php holds secrets and per-server overrides
 ├── database/migrations/  your database migrations
-├── public/               document root: the framework's front controller and scripts, your images
+├── public/               document root – the framework's only (front controller, scripts, generated PWA files)
 ├── storage/              logs and caches (writable by the web server)
 ├── core/                 the framework – do not edit, replaced on update
 └── bin/frasm             command-line interface
@@ -228,7 +249,7 @@ public function stream(): Response
 make push:vapid    # prints the keys for config/local.php
 ```
 
-Set a default icon for all notifications in `config/local.php` (`'push' => ['icon' => '/icon.png']`), then send
+Set a default icon for all notifications in `config/local.php` (`'push' => ['icon' => '/assets/img/icon.png']`), then send
 from code:
 
 ```php
@@ -240,7 +261,7 @@ $push->queue(new PushMessage('Daily report', ttl: 3600), PushTarget::channel('re
 $push->send(new PushMessage(
     'Gate open',
     'The gate has been open for 10 minutes.',
-    options: ['image' => '/img/gate.jpg'],
+    options: ['image' => '/assets/img/gate.jpg'],
     actions: [
         ['action' => 'camera', 'title' => 'Camera', 'url' => '/camera'],
         ['action' => 'close', 'title' => 'Close', 'post' => '/api/gate/close'],
@@ -251,7 +272,7 @@ $push->send(new PushMessage(
 or from the command line:
 
 ```bash
-make push:send ARGS='"Gate open" --user=1 --image=/img/gate.jpg --action="camera|Camera|/camera" --action="close|Close|post:/api/gate/close"'
+make push:send ARGS='"Gate open" --user=1 --image=/assets/img/gate.jpg --action="camera|Camera|/camera" --action="close|Close|post:/api/gate/close"'
 ```
 
 A `post` action reaches your controller with a signed token instead of a CSRF token; the pressed button is
@@ -269,7 +290,7 @@ Enable it in `config/local.php` and generate the manifest and icons:
     'enabled'    => true,
     'name'       => 'My Application',
     'short_name' => 'MyApp',
-    'icon'       => 'public/logo.png',   // square image, at least 512×512 px
+    'icon'       => 'app/Assets/img/logo.png',   // square image, at least 512×512 px
 ],
 ```
 
@@ -280,6 +301,32 @@ make pwa:build ARGS=--force   # after changing the icon or colors
 
 `frasm_head()` then links the manifest and registers the service worker, so browsers offer to install
 the site. On iPhone, Web Push notifications only work in an installed web app.
+
+A part of the site can be a separate app with its own name, icon and colors – pages within its scope
+offer that app instead of the main one:
+
+```php
+'pwa' => [
+    // ... the main app as above
+    'apps' => [
+        'smarthome' => [
+            'name'        => 'SmartHome',
+            'scope'       => '/smarthome',               // no trailing slash: covers /smarthome itself
+            'theme_color' => '#0b0e14',
+            'icon'        => 'app/Assets/img/home.svg',   // SVG icons need rsvg-convert (librsvg2-bin)
+        ],
+    ],
+],
+```
+
+`make pwa:build` writes each app to `public/pwa/<name>/`. Every app registers the service worker with its own
+scope, so push subscriptions made in an app belong to it and Android shows their notifications as notifications
+of that app. Android does not install two apps with nested scopes (`/` and `/smarthome`) on one device: install
+one of them, or serve independent apps from separate subdomains.
+
+Subscriptions remember the app they were made in, so notifications about a part of the site can go to that
+app only: `PushTarget::user($id)->inApp('smarthome')` in code, `make push:send ARGS='"Doorbell" --user=1 --app=smarthome'`
+from the command line (`--app=main` for the main app; without `inApp()` every subscription is notified).
 
 ### Scheduled tasks
 
@@ -343,7 +390,7 @@ make db:reset ARGS=--help                        # help for one command
 | `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
 | `schedule:list`, `schedule:run`, `schedule:cron` | Scheduled tasks (`#[Schedule]`) and their cron entry |
 | `push:vapid`, `push:send` | Web Push |
-| `pwa:build` | Web app manifest and icons |
+| `pwa:build` | Web app manifests and icons (main app and `pwa.apps`) |
 | `key:generate`, `token:create` | Application key, API tokens |
 | `user:create`, `user:password`, `user:roles` | User accounts: create, set the password (asked without echo, or `--generate`), change roles |
 | `logs:archive`, `prune` | Maintenance |

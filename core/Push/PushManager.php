@@ -122,6 +122,27 @@ class PushManager
     }
 
     /**
+     * @brief Validates the app a subscription is made in: '' (main app) or a key of pwa.apps.
+     *
+     * @param mixed $app Submitted value.
+     * @return string
+     * @throws PushException 400 for unknown apps.
+     */
+    public static function validateApp(mixed $app): string
+    {
+        $app = is_string($app) ? $app : '';
+        if ($app === '') {
+            return '';
+        }
+        PushTarget::assertApp($app);
+        if (!array_key_exists($app, (array)Config::get('pwa.apps', []))) {
+            throw new PushException("Unknown app '{$app}'.", 400);
+        }
+
+        return $app;
+    }
+
+    /**
      * @brief Sends a message immediately (inside the current request).
      *
      * @param PushMessage $message Notification.

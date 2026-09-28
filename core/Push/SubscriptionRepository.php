@@ -39,23 +39,25 @@ class SubscriptionRepository
      * @param int|string|null $userId Owning user (null = anonymous).
      * @param string|null $userAgent Client user agent (truncated to 255 characters).
      * @param int $maxPerUser Maximum subscriptions kept per user (0 = unlimited).
+     * @param string $app App the subscription was made in (pwa.apps key, '' = main app).
      * @return array{id: int, created: bool} Subscription id and whether a new row was inserted.
      * @throws \Core\Exceptions\DatabaseException On query failure.
      */
-    public function save(Subscription $subscription, int|string|null $userId, ?string $userAgent, int $maxPerUser = 10): array
+    public function save(Subscription $subscription, int|string|null $userId, ?string $userAgent, int $maxPerUser = 10, string $app = ''): array
     {
         $db = DB::getInstance();
 
         // LAST_INSERT_ID(id) makes the existing id available on the duplicate-key path too
         $db->query(
-            'INSERT INTO `' . self::TABLE . '` (`user_id`, `endpoint`, `endpoint_hash`, `p256dh`, `auth`, `user_agent`)
-             VALUES (?, ?, ?, ?, ?, ?)
+            'INSERT INTO `' . self::TABLE . '` (`user_id`, `app`, `endpoint`, `endpoint_hash`, `p256dh`, `auth`, `user_agent`)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                  `id` = LAST_INSERT_ID(`id`),
-                 `user_id` = VALUES(`user_id`), `p256dh` = VALUES(`p256dh`), `auth` = VALUES(`auth`),
+                 `user_id` = VALUES(`user_id`), `app` = VALUES(`app`), `p256dh` = VALUES(`p256dh`), `auth` = VALUES(`auth`),
                  `user_agent` = VALUES(`user_agent`), `updated_at` = CURRENT_TIMESTAMP',
             [
                 $userId,
+                $app,
                 $subscription->endpoint,
                 $subscription->endpointHash(),
                 $subscription->p256dh,
@@ -191,6 +193,9 @@ class SubscriptionRepository
         if ($target->userIds !== null) {
             $conditions[] = 's.`user_id` IN (' . implode(', ', array_fill(0, count($target->userIds), '?')) . ')';
         }
+        if ($target->app !== null) {
+            $conditions[] = 's.`app` = ?';
+        }
 
         $sql = 'SELECT s.`id`, s.`user_id`, s.`endpoint`, s.`p256dh`, s.`auth`
                 FROM `' . self::TABLE . "` s {$join}
@@ -199,7 +204,7 @@ class SubscriptionRepository
 
         $lastId = 0;
         do {
-            $params = array_merge($fixedParams, [$lastId], $target->userIds ?? [], [$batchSize]);
+            $params = array_merge($fixedParams, [$lastId], $target->userIds ?? [], $target->app === null ? [] : [$target->app], [$batchSize]);
             $rows = DB::getInstance()->select($sql, $params);
 
             if ($rows !== []) {

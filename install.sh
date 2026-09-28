@@ -11,10 +11,18 @@
 #   Update an existing project (from inside it):
 #     ./install.sh --update .            # or: make update
 #
+#   Restore a project cloned from its own repository (the framework is git-ignored):
+#     git clone <your-project-repo> /var/www/myapp && cd /var/www/myapp
+#     cp /path/to/backup/local.php config/local.php
+#     wget -qO install.sh https://raw.githubusercontent.com/PetrSmazinka/Frasm/master/install.sh
+#     bash install.sh --restore .
+#
 # Options:
-#   --ref <branch|tag>   Version to install (default: master; prefer a tag in production)
+#   --ref <branch|tag>   Version to install (default: master; prefer a tag in production;
+#                        --restore defaults to the version recorded in .frasm-version)
 #   --update             Replace framework files only (app/, storage/, config are kept)
-#   --migrate            With --update: also run database migrations
+#   --restore            Install the framework files into a cloned project (like --update)
+#   --migrate            With --update/--restore: also run database migrations
 #   --no-example         Do not install the Hello world application
 #   --pwa                Make the site installable as an app (manifest + icons)
 #   --scheduler          Enable #[Schedule] tasks (adds the cron entry)
@@ -28,13 +36,15 @@
 set -euo pipefail
 
 REPO="${FRASM_REPO:-https://github.com/PetrSmazinka/Frasm.git}"
-REF="master"
+REF=""
+RESTORE=""
 TARGET=""
 SOURCE=""
 PASS_ARGS=()
 
 usage() {
-    sed -n '2,25p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
+    # The header comment, up to its closing ==== line
+    awk 'NR > 2 && /^# =+$/ { exit } NR > 2' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -53,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --source)     SOURCE="${2:?--source requires a value}"; shift 2 ;;
         --web-user)   PASS_ARGS+=("--web-user=${2:?--web-user requires a value}"); shift 2 ;;
         --update)     PASS_ARGS+=("--update"); shift ;;
+        --restore)    PASS_ARGS+=("--restore"); RESTORE=1; shift ;;
         --migrate)    PASS_ARGS+=("--migrate"); shift ;;
         --no-example) PASS_ARGS+=("--no-example"); shift ;;
         --pwa)        PASS_ARGS+=("--pwa"); shift ;;
@@ -64,6 +75,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TARGET" ]] || usage 1
+
+# A restore reinstalls the version the project was last installed or updated with
+if [[ -z "$REF" && -n "$RESTORE" && -f "$TARGET/.frasm-version" ]]; then
+    REF="$(sed -nE 's/^[[:space:]]*"ref":[[:space:]]*"([^"]+)".*/\1/p' "$TARGET/.frasm-version" | head -1)"
+    [[ -n "$REF" ]] && step "Using version $REF from .frasm-version"
+fi
+REF="${REF:-master}"
 [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "Invalid --ref '$REF'."
 
 command -v php >/dev/null 2>&1 || die "PHP CLI is not installed."

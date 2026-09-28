@@ -52,8 +52,9 @@ if (!function_exists('frasm_head')) {
      * Place it inside <head> of every layout. Scripts are versioned by modification time and marked
      * with data-frasm-track, so a deployment of new framework scripts forces a full page reload.
      *
-     * When `pwa.enabled` is on and `php bin/frasm pwa:build` has generated the manifest, it also links
-     * the web app manifest and icons and registers the service worker (feature 'pwa').
+     * When `pwa.enabled` is on and `php bin/frasm pwa:build` has generated the manifests, it also links
+     * the manifest and icons of the app whose scope contains the current page (the main app, or one
+     * of `pwa.apps` such as /smarthome) and registers the service worker (feature 'pwa').
      *
      * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push', 'pwa'
      *                                     (null = nav + live + stream, plus push and pwa when enabled).
@@ -62,9 +63,14 @@ if (!function_exists('frasm_head')) {
      */
     function frasm_head(?array $features = null): string
     {
+        $container = \Core\Container\Container::getInstance();
+        $request = $container->bound(\Core\Http\Request::class)
+            ? $container->get(\Core\Http\Request::class)
+            : \Core\Http\Request::fromGlobals();
+
         $pushEnabled = \Core\Push\PushManager::isEnabled();
-        $pwaEnabled = \Core\Pwa\PwaBuilder::isEnabled()
-            && is_file(FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'manifest.webmanifest');
+        $pwaApp = \Core\Pwa\PwaBuilder::forPath($request->path());
+        $pwaEnabled = $pwaApp !== null;
 
         if ($features === null) {
             $features = ['nav', 'live', 'stream'];
@@ -76,11 +82,6 @@ if (!function_exists('frasm_head')) {
             }
         }
 
-        $container = \Core\Container\Container::getInstance();
-        $request = $container->bound(\Core\Http\Request::class)
-            ? $container->get(\Core\Http\Request::class)
-            : \Core\Http\Request::fromGlobals();
-
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
         $base = $request->basePath();
 
@@ -88,21 +89,26 @@ if (!function_exists('frasm_head')) {
             . '<meta name="csrf-token" content="' . $escape(\Core\Security\Csrf::token()) . '">' . "\n";
 
         $serviceWorker = (string)\Core\Config\Config::get('push.service_worker', '/frasm-sw.js');
+        // Every installable app registers the service worker with its own scope, so its push
+        // subscription (and its notifications) belong to that app on Android
+        $serviceWorkerScope = $base . ($pwaApp['scope'] ?? '/');
 
         if ($pushEnabled && in_array('push', $features, true)) {
             $html .= '<meta name="frasm-push-key" content="' . $escape(\Core\Push\PushManager::publicKey()) . '">' . "\n"
-                . '<meta name="frasm-push-sw" content="' . $escape($serviceWorker) . '">' . "\n";
+                . '<meta name="frasm-push-sw" content="' . $escape($serviceWorker) . '">' . "\n"
+                . '<meta name="frasm-sw-scope" content="' . $escape($serviceWorkerScope) . '">' . "\n"
+                . '<meta name="frasm-push-app" content="' . $escape($pwaApp['app'] ?? '') . '">' . "\n";
         }
 
         if ($pwaEnabled && in_array('pwa', $features, true)) {
-            $appName = (string)(\Core\Config\Config::get('pwa.short_name') ?? \Core\Config\Config::get('pwa.name') ?? \Core\Config\Config::get('app.name', 'Frasm'));
-            $html .= '<link rel="manifest" href="' . $escape("{$base}/manifest.webmanifest") . '">' . "\n"
-                . '<link rel="apple-touch-icon" href="' . $escape("{$base}/" . \Core\Pwa\PwaBuilder::ICON_DIR . '/apple-touch-icon.png') . '">' . "\n"
-                . '<meta name="theme-color" content="' . $escape((string)\Core\Config\Config::get('pwa.theme_color', '#343a40')) . '">' . "\n"
+            $html .= '<link rel="manifest" href="' . $escape($base . $pwaApp['manifest']) . '">' . "\n"
+                . '<link rel="apple-touch-icon" href="' . $escape($base . $pwaApp['apple_icon']) . '">' . "\n"
+                . '<meta name="theme-color" content="' . $escape($pwaApp['theme_color']) . '">' . "\n"
                 . '<meta name="mobile-web-app-capable" content="yes">' . "\n"
                 . '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n"
-                . '<meta name="apple-mobile-web-app-title" content="' . $escape($appName) . '">' . "\n"
-                . '<meta name="frasm-sw" content="' . $escape($serviceWorker) . '">' . "\n";
+                . '<meta name="apple-mobile-web-app-title" content="' . $escape($pwaApp['title']) . '">' . "\n"
+                . '<meta name="frasm-sw" content="' . $escape($serviceWorker) . '">' . "\n"
+                . ($pushEnabled && in_array('push', $features, true) ? '' : '<meta name="frasm-sw-scope" content="' . $escape($serviceWorkerScope) . '">' . "\n");
         }
 
         foreach ($features as $feature) {

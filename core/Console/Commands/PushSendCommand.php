@@ -60,6 +60,7 @@ final class PushSendCommand extends Command
             'user='     => 'Recipient user id',
             'all'       => 'Send to every subscriber (required when --user is omitted)',
             'channel='  => 'Only subscriptions that joined this channel',
+            'app='      => 'Only subscriptions made in this installable app (pwa.apps key, or "main")',
             'body='     => 'Notification text',
             'url='      => 'Page opened on click',
             'icon='     => 'Icon next to the text (default: push.icon)',
@@ -82,9 +83,10 @@ final class PushSendCommand extends Command
     {
         return "Examples:\n"
             . "  php bin/frasm push:send \"Hello\" --user=1 --body=\"Test message\" --url=/\n"
-            . "  php bin/frasm push:send \"Gate open\" --user=1 --image=/img/gate.jpg \\\n"
+            . "  php bin/frasm push:send \"Gate open\" --user=1 --image=/assets/img/gate.jpg \\\n"
             . "      --action=\"camera|Camera|/camera\" --action=\"close|Close|post:/api/gate/close\"\n"
             . "  php bin/frasm push:send \"Report\" --all --channel=reports --queue\n"
+            . "  php bin/frasm push:send \"Doorbell\" --user=1 --app=smarthome   # only the SmartHome app\n"
             . "\n"
             . "Buttons: url actions open the page, post: actions send a background POST authorized by a\n"
             . "signed token (read it in the controller as \$request->getAttribute('push_action')).\n"
@@ -114,6 +116,10 @@ final class PushSendCommand extends Command
         $channel = $input->option('channel');
         if ($channel !== null) {
             $target = $target->inChannel($channel);
+        }
+        $app = $input->option('app');
+        if ($app !== null) {
+            $target = $target->inApp($app === 'main' ? '' : $app);
         }
 
         try {

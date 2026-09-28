@@ -33,7 +33,7 @@ final class PwaBuildCommand extends Command
     /** @brief Command description. @return string */
     public function description(): string
     {
-        return 'Generate manifest.webmanifest and app icons from config/pwa.php';
+        return 'Generate the web app manifests and icons from config/pwa.php';
     }
 
     /**
@@ -43,7 +43,10 @@ final class PwaBuildCommand extends Command
      */
     public function options(): array
     {
-        return ['force' => 'Regenerate icons that already exist (after changing pwa.icon or colors)'];
+        return [
+            'force'      => 'Regenerate icons that already exist (after changing pwa.icon or colors)',
+            'if-enabled' => 'Do nothing (and succeed) when PWA support is disabled (used by the installer)',
+        ];
     }
 
     /**
@@ -54,8 +57,9 @@ final class PwaBuildCommand extends Command
     public function help(): string
     {
         return "Enable the app in config/local.php, for example:\n"
-            . "  'pwa' => ['enabled' => true, 'name' => 'My App', 'short_name' => 'App', 'icon' => 'public/logo.png'],\n"
-            . "then run this command. Icons need the PHP GD extension.";
+            . "  'pwa' => ['enabled' => true, 'name' => 'My App', 'short_name' => 'App', 'icon' => 'app/Assets/img/logo.png'],\n"
+            . "then run this command. Further apps for parts of the site go to 'pwa' => ['apps' => [...]]\n"
+            . "(see config/pwa.php). Icons need the PHP GD extension, SVG icons also rsvg-convert.";
     }
 
     /**
@@ -68,6 +72,9 @@ final class PwaBuildCommand extends Command
     public function handle(Input $input, Output $output): int
     {
         if (!PwaBuilder::isEnabled()) {
+            if ($input->flag('if-enabled')) {
+                return 0;
+            }
             $output->warning("PWA support is disabled: set 'pwa' => ['enabled' => true] in config/local.php first.");
             return 1;
         }

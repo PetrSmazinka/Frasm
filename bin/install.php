@@ -11,13 +11,18 @@ declare(strict_types=1);
  * Usage:
  *   php bin/install.php --target=/var/www/app [--no-example] [--pwa] [--scheduler] [--web-user=www-data]
  *   php bin/install.php --target=/var/www/app --update [--migrate] [--web-user=www-data]
+ *   php bin/install.php --target=/var/www/app --restore [--migrate] [--web-user=www-data]
  *   (--web-user names the web server group that gets access to storage/ and config/local.php)
  *   Optional: --ref=<branch|tag> --commit=<sha> (recorded in .frasm-version)
+ *
+ * --restore reinstalls the framework into a project cloned from its own repository, which holds only
+ * the application (the framework files are git-ignored, see gitignoreBlock()).
  *
  * Ownership rules:
  *   - framework files (FRAMEWORK_DIRS, FRAMEWORK_FILES, public/js/frasm-*.js) are always replaced;
  *   - config/*.php defaults are copied only when missing (never overwritten);
- *   - app/, database/, storage/, config/local.php and .gitignore are created once and never touched again.
+ *   - app/, database/, storage/ and config/local.php are created once and never touched again;
+ *   - .gitignore is created once; only its block between GITIGNORE_BEGIN and GITIGNORE_END is rewritten.
  */
 
 use Core\Console\Output;
@@ -42,6 +47,16 @@ const FRAMEWORK_FILES = [
     'install.sh',
     'LICENSE',
 ];
+
+/**
+ * @var string First line of the installer-managed block in .gitignore.
+ */
+const GITIGNORE_BEGIN = '# >>> frasm (managed by the installer and rewritten on update; add your own rules outside this block)';
+
+/**
+ * @var string Last line of the installer-managed block in .gitignore.
+ */
+const GITIGNORE_END = '# <<< frasm';
 
 /**
  * @var list<string> Required PHP extensions.
@@ -258,6 +273,65 @@ function createLocalConfig(string $source, string $target, bool $pwa = false, bo
 }
 
 /**
+ * @brief Builds the installer-managed .gitignore block: everything the installer can recreate, plus secrets.
+ *
+ * A project repository then holds only the application; `install.sh --restore` brings the rest back.
+ *
+ * @return string Block including the marker lines and a trailing newline.
+ */
+function gitignoreBlock(): string
+{
+    $lines = [
+        GITIGNORE_BEGIN,
+        '# Framework files (after cloning the project: install.sh --restore .)',
+        ...array_map(fn(string $directory): string => "/{$directory}/", FRAMEWORK_DIRS),
+        ...array_map(fn(string $file): string => "/{$file}", FRAMEWORK_FILES),
+        '/public/js/frasm-*.js',
+        '# Generated from config/pwa.php by `php bin/frasm pwa:build`',
+        '/public/manifest.webmanifest',
+        '/public/pwa/',
+        '# Secrets and runtime data (back up config/local.php separately: it holds the application key)',
+        '/config/local.php',
+        '/storage/*',
+        '!/storage/.gitkeep',
+        '# Leftovers of an interrupted install',
+        '*.frasm-new',
+        '*.frasm-old',
+        GITIGNORE_END,
+    ];
+
+    return implode("\n", $lines) . "\n";
+}
+
+/**
+ * @brief Writes the managed block into .gitignore: replaces an existing block, otherwise prepends it
+ *        (rules below it, i.e. the project's own, take precedence).
+ *
+ * @param string $file Path of .gitignore.
+ * @return bool True when the file changed.
+ */
+function updateGitignore(string $file): bool
+{
+    $current = is_file($file) ? (string)file_get_contents($file) : '';
+    $block = gitignoreBlock();
+    // Matched by the marker prefix only, so a block written with a differently worded first line is replaced too
+    $pattern = '/^# >>> frasm\b.*?^' . preg_quote(GITIGNORE_END, '/') . '[^\n]*(?:\n|$)/ms';
+
+    $updated = preg_match($pattern, $current)
+        ? (string)preg_replace_callback($pattern, fn(): string => $block, $current, 1)
+        : $block . ($current !== '' ? "\n" . $current : '');
+
+    if ($updated === $current) {
+        return false;
+    }
+    if (file_put_contents($file, $updated) === false) {
+        fail("Cannot write '{$file}'.");
+    }
+
+    return true;
+}
+
+/**
  * @brief Recursively changes the owner and group of a directory tree.
  *
  * @param string $path Directory.
@@ -394,11 +468,12 @@ function main(array $argv): void
 {
     $options = parseOptions($argv);
     $source = dirname(__DIR__);
-    $update = isset($options['update']);
+    $restore = isset($options['restore']);
+    $update = isset($options['update']) || $restore;
     $webUser = is_string($options['web-user'] ?? null) ? $options['web-user'] : 'www-data';
 
     if (!is_string($options['target'] ?? null) || $options['target'] === '') {
-        fail('Usage: php bin/install.php --target=<dir> [--update] [--migrate] [--no-example] [--web-user=www-data]');
+        fail('Usage: php bin/install.php --target=<dir> [--update|--restore] [--migrate] [--no-example] [--web-user=www-data]');
     }
     if (!preg_match('/^[a-z_][a-z0-9_-]*$/D', $webUser)) {
         fail("Invalid --web-user '{$webUser}'.");
@@ -406,7 +481,7 @@ function main(array $argv): void
 
     $target = rtrim($options['target'], '/');
     if ($update && !is_dir($target)) {
-        fail("'{$target}' does not exist; run without --update.");
+        fail("'{$target}' does not exist; run without --update" . ($restore ? ' / --restore, or clone the project first.' : '.'));
     }
     if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
         $user = posix_getpwuid(posix_geteuid())['name'] ?? 'USER';
@@ -422,8 +497,16 @@ function main(array $argv): void
     }
 
     $installed = is_file($target . '/core/bootstrap.php');
-    if ($update && !$installed) {
-        fail("'{$target}' does not contain a Frasm installation; run without --update.");
+    if ($restore) {
+        if ($installed) {
+            fail("'{$target}' already contains the framework; use --update to upgrade it.");
+        }
+        if (!is_dir($target . '/app') && !is_file($target . '/.frasm-version')) {
+            fail("'{$target}' is not a Frasm project (neither app/ nor .frasm-version found).");
+        }
+    } elseif ($update && !$installed) {
+        fail("'{$target}' does not contain a Frasm installation; run without --update"
+            . (is_dir($target . '/app') ? ', or with --restore for a project cloned from its repository.' : '.'));
     }
     if (!$update && $installed) {
         fail("'{$target}' already contains Frasm; use --update to upgrade the framework files.");
@@ -432,7 +515,7 @@ function main(array $argv): void
         fail("'{$target}' is not empty; install into an empty or new directory.");
     }
 
-    console()->title(($update ? 'Updating' : 'Installing') . " Frasm in {$target}");
+    console()->title(($restore ? 'Restoring' : ($update ? 'Updating' : 'Installing')) . " Frasm in {$target}");
     checkRequirements();
     console()->success('Requirements met (PHP ' . PHP_VERSION . ')');
 
@@ -446,7 +529,7 @@ function main(array $argv): void
         }
     }
 
-    console()->success('Framework files ' . ($update ? 'updated' : 'installed'));
+    console()->success('Framework files ' . ($update && !$restore ? 'updated' : 'installed'));
 
     // Framework scripts: replace current ones, drop ones that no longer exist
     $scripts = array_map('basename', glob("{$source}/public/js/frasm-*.js") ?: []);
@@ -496,6 +579,24 @@ function main(array $argv): void
         console()->success('config/local.php created with a new app key');
     }
 
+    if ($restore) {
+        $adminPassword = createLocalConfig($source, $target, isset($options['pwa']), isset($options['scheduler']));
+        if ($adminPassword !== null) {
+            console()->warning('config/local.php was missing and has been created with a NEW application key:'
+                . ' put your backed-up config/local.php in its place (it also holds the database credentials),'
+                . ' otherwise everything signed with the original key (remember-me cookies, tokens) becomes invalid');
+        }
+    }
+
+    // A repository does not keep empty directories
+    if (!is_dir("{$target}/database/migrations")) {
+        mkdir("{$target}/database/migrations", 0755, true);
+    }
+
+    if (updateGitignore("{$target}/.gitignore") && $update) {
+        console()->success('.gitignore: framework rules updated');
+    }
+
     foreach (['storage/logs', 'storage/cache'] as $directory) {
         if (!is_dir("{$target}/{$directory}")) {
             mkdir("{$target}/{$directory}", 02775, true);
@@ -508,12 +609,18 @@ function main(array $argv): void
         console()->success("Permissions set (owner " . (posix_getpwuid(fileowner($target))['name'] ?? '?') . ", web server group '{$webUser}')");
     }
 
-    // 4. Version stamp
-    file_put_contents("{$target}/.frasm-version", json_encode([
-        'ref'          => is_string($options['ref'] ?? null) ? $options['ref'] : null,
-        'commit'       => is_string($options['commit'] ?? null) ? $options['commit'] : null,
-        'installed_at' => date('c'),
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+    // 4. Version stamp (versioned with the project: rewritten only when the version changes)
+    $version = [
+        'ref'    => is_string($options['ref'] ?? null) ? $options['ref'] : null,
+        'commit' => is_string($options['commit'] ?? null) ? $options['commit'] : null,
+    ];
+    $stamp = json_decode((string)@file_get_contents("{$target}/.frasm-version"), true);
+    if (!is_array($stamp) || ($stamp['ref'] ?? null) !== $version['ref'] || ($stamp['commit'] ?? null) !== $version['commit']) {
+        file_put_contents("{$target}/.frasm-version", json_encode(
+            $version + ['installed_at' => date('c')],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+        ) . PHP_EOL);
+    }
 
     $frasm = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/frasm");
     $steps = [];
@@ -527,14 +634,13 @@ function main(array $argv): void
         $steps[] = $permissionStep;
     }
 
-    // 5. Installable web app: generate the manifest and icons (needs GD for the icons)
-    if (isset($options['pwa']) || ($update && is_file("{$target}/public/manifest.webmanifest"))) {
-        passthru("{$frasm} pwa:build", $pwaStatus);
-        if ($pwaStatus !== 0) {
-            $steps[] = ['Generate the web app manifest and icons (needs the PHP GD extension):', [
-                "cd {$target} && " . $task('pwa:build', 'pwa:build'),
-            ]];
-        }
+    // 5. Installable web app: generate the manifest and icons when pwa.enabled (needs GD for the icons).
+    //    Driven by the configuration, not by existing files: they are git-ignored and missing after --restore.
+    passthru("{$frasm} pwa:build --if-enabled", $pwaStatus);
+    if ($pwaStatus !== 0) {
+        $steps[] = ['Generate the web app manifest and icons (needs the PHP GD extension):', [
+            "cd {$target} && " . $task('pwa:build', 'pwa:build'),
+        ]];
     }
 
     // 6. Scheduler: add or remove the cron entry according to scheduler.enabled
@@ -548,7 +654,14 @@ function main(array $argv): void
     // 7. Post-update tasks
     if ($update) {
         passthru("{$frasm} route:clear");
-        if (isset($options['migrate'])) {
+        if ($restore && $adminPassword !== null) {
+            // A fresh local.php has no database credentials yet, nor the PWA and scheduler settings
+            $steps[] = ["Restore your backed-up {$target}/config/local.php (or enter the database credentials), then:", [
+                "cd {$target}",
+                $task('migrate', 'db:migrate'),
+                'php bin/frasm pwa:build --if-enabled && php bin/frasm schedule:cron',
+            ]];
+        } elseif (isset($options['migrate'])) {
             passthru("{$frasm} db:migrate", $status);
             if ($status !== 0) {
                 fail('Database migration failed.');
@@ -561,7 +674,7 @@ function main(array $argv): void
         ]];
 
         console()->line();
-        console()->success('Frasm updated');
+        console()->success($restore ? 'Frasm restored' : 'Frasm updated');
         printSteps($steps);
         return;
     }

@@ -6,7 +6,8 @@
 --
 -- Sections introduced by "-- @module <name>" are applied only when the module is
 -- enabled (see Migrator::CORE_MODULES). Statements must end with ';' at line end.
--- Existing tables are never altered: during development use `php bin/frasm db:reset`.
+-- Existing tables are altered only by statements preceded by "-- @unless-column <table>.<column>"
+-- (run when the column is missing); otherwise use `php bin/frasm db:reset` during development.
 -- =============================================================================
 
 -- @module core
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS `frasm_api_tokens` (
 CREATE TABLE IF NOT EXISTS `frasm_push_subscriptions` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id` INT(11) NULL,
+    `app` VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' COMMENT 'PWA app (pwa.apps key) the subscription belongs to, "" = main app',
     `endpoint` VARCHAR(2048) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     `endpoint_hash` CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     `p256dh` VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -101,8 +103,14 @@ CREATE TABLE IF NOT EXISTS `frasm_push_subscriptions` (
     `last_success_at` DATETIME NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_endpoint_hash` (`endpoint_hash`),
-    KEY `idx_user_id` (`user_id`)
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_app` (`app`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- @unless-column frasm_push_subscriptions.app
+ALTER TABLE `frasm_push_subscriptions`
+    ADD COLUMN `app` VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' COMMENT 'PWA app (pwa.apps key) the subscription belongs to, "" = main app' AFTER `user_id`,
+    ADD KEY `idx_app` (`app`);
 
 CREATE TABLE IF NOT EXISTS `frasm_push_channels` (
     `subscription_id` INT UNSIGNED NOT NULL,

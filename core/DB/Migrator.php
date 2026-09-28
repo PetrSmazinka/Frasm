@@ -119,7 +119,10 @@ class Migrator
 
         foreach (self::enabledModules() as $module) {
             foreach ($sections[$module] ?? [] as $statement) {
-                $this->db->query($statement);
+                if ($statement['unless_column'] !== null && $this->columnExists(...$statement['unless_column'])) {
+                    continue;
+                }
+                $this->db->query($statement['sql']);
             }
             $applied[] = $module;
         }
@@ -130,9 +133,13 @@ class Migrator
     /**
      * @brief Splits the schema file into statements grouped by module.
      *
-     * @param string $path Schema file path.
-     * @return array<string, list<string>> Module name => SQL statements.
-     * @throws DatabaseException If the file cannot be read.
+     * "-- @module <name>" starts a module section. "-- @unless-column <table>.<column>" makes the next
+     * statement run only when that column does not exist yet: the portable way to add a column to an
+     * existing table (MySQL has no ADD COLUMN IF NOT EXISTS).
+     *
+     * @param string $path Schema file.
+     * @return array<string, list<array{sql: string, unless_column: array{0: string, 1: string}|null}>>
+     * @throws DatabaseException If the file cannot be read or a directive is malformed.
      */
     public static function parseSchema(string $path): array
     {
@@ -144,12 +151,21 @@ class Migrator
         $sections = [];
         $module = 'core';
         $buffer = '';
+        $unlessColumn = null;
 
         foreach (preg_split('/\R/', $content) ?: [] as $line) {
             $trimmed = trim($line);
 
             if (preg_match('/^--\s*@module\s+([a-z0-9_]+)\s*$/i', $trimmed, $matches)) {
                 $module = strtolower($matches[1]);
+                continue;
+            }
+
+            if (preg_match('/^--\s*@unless-column\s+(.*)$/i', $trimmed, $matches)) {
+                if (!preg_match('/^([a-z0-9_]+)\.([a-z0-9_]+)$/i', trim($matches[1]), $parts)) {
+                    throw new DatabaseException("Malformed schema directive '{$trimmed}' (expected @unless-column <table>.<column>).");
+                }
+                $unlessColumn = [$parts[1], $parts[2]];
                 continue;
             }
 
@@ -160,16 +176,32 @@ class Migrator
             $buffer .= $line . "\n";
 
             if (str_ends_with($trimmed, ';')) {
-                $sections[$module][] = rtrim(trim($buffer), ';');
+                $sections[$module][] = ['sql' => rtrim(trim($buffer), ';'), 'unless_column' => $unlessColumn];
                 $buffer = '';
+                $unlessColumn = null;
             }
         }
 
         if (trim($buffer) !== '') {
-            $sections[$module][] = trim($buffer);
+            $sections[$module][] = ['sql' => trim($buffer), 'unless_column' => $unlessColumn];
         }
 
         return $sections;
+    }
+
+    /**
+     * @brief Checks whether a column exists in the current database.
+     *
+     * @param string $table Table name.
+     * @param string $column Column name.
+     * @return bool
+     */
+    private function columnExists(string $table, string $column): bool
+    {
+        return $this->db->selectValue(
+            'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+            [$table, $column]
+        ) !== null;
     }
 
     /**

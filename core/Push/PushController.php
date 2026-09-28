@@ -58,8 +58,9 @@ class PushController extends BaseController
     /**
      * @brief Stores (or refreshes) the browser's subscription.
      *
-     * The body is PushSubscription.toJSON() optionally extended with "channels": [...]. Without it,
-     * a new subscription joins `push.default_channels` and an existing one keeps its channels.
+     * The body is PushSubscription.toJSON() optionally extended with "channels": [...] and "app"
+     * (the installable app the page belongs to, see frasm_head()). Without channels, a new
+     * subscription joins `push.default_channels` and an existing one keeps its channels.
      *
      * @param Request $request Current request with PushSubscription JSON body.
      * @return Response 201 {"subscribed": true, "channels": [...]}.
@@ -79,12 +80,14 @@ class PushController extends BaseController
         $channels = is_array($body) && array_key_exists('channels', $body)
             ? PushManager::validateChannels($body['channels'])
             : null;
+        $app = PushManager::validateApp(is_array($body) ? ($body['app'] ?? '') : '');
 
         $saved = $this->subscriptions->save(
             $subscription,
             $userId,
             $request->header('User-Agent'),
-            (int)Config::get('push.max_subscriptions_per_user', 10)
+            (int)Config::get('push.max_subscriptions_per_user', 10),
+            $app
         );
 
         if ($channels === null && $saved['created']) {
