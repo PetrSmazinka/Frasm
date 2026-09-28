@@ -20,6 +20,12 @@ use Core\Exceptions\DatabaseException;
  * It is applied idempotently (CREATE TABLE IF NOT EXISTS) on every migrate run, for enabled
  * modules only. Application migrations (database.migrations_path) are PHP files returning an
  * object with up()/down(); they are tracked in `frasm_migrations` and rolled back in batches.
+ *
+ * One Migrator works on one connection (DB::connection()). Migrations placed directly in the
+ * migrations directory belong to the default connection, those in a subdirectory named after a
+ * connection (database/migrations/blog/) run on that connection; each database keeps its own
+ * `frasm_migrations` table, so it can be backed up and restored on its own. The core schema is
+ * applied to the default connection only. Inside a migration, use DB::connection('<name>').
  */
 class Migrator
 {
@@ -43,26 +49,103 @@ class Migrator
     protected DB $db;
 
     /**
+     * @var string Connection name.
+     */
+    protected string $connection;
+
+    /**
      * @var list<string> Registered directories containing application migration files.
      */
     protected array $paths = [];
 
     /**
-     * @brief Registers the application migration directory.
+     * @brief Registers the migration directories of a connection.
      *
-     * @throws DatabaseException If the database connection cannot be established.
+     * @param string|null $connection Connection name (null = the default connection).
+     * @throws DatabaseException If the connection is unknown or cannot be established.
      */
-    public function __construct()
+    public function __construct(?string $connection = null)
     {
-        $this->db = DB::getInstance();
+        $this->connection = $connection ?? DB::defaultName();
+        $this->db = DB::connection($this->connection);
 
-        $appMigrations = (string)Config::get(
+        $root = self::migrationsRoot();
+        if ($this->isDefault()) {
+            $this->addPath($root);
+        }
+        $this->addPath($root . DIRECTORY_SEPARATOR . $this->connection);
+    }
+
+    /**
+     * @brief Returns the application migrations directory (database.migrations_path).
+     *
+     * @return string
+     */
+    public static function migrationsRoot(): string
+    {
+        return (string)Config::get(
             'database.migrations_path',
             FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'migrations'
         );
-        if (is_dir($appMigrations)) {
-            $this->addPath($appMigrations);
-        }
+    }
+
+    /**
+     * @brief Returns the connections to migrate: the default one and every configured connection
+     *        with a migrations subdirectory.
+     *
+     * @return list<string>
+     */
+    public static function connections(): array
+    {
+        $root = self::migrationsRoot();
+        $default = DB::defaultName();
+
+        return array_values(array_filter(
+            DB::connectionNames(),
+            fn(string $name): bool => $name === $default || is_dir($root . DIRECTORY_SEPARATOR . $name)
+        ));
+    }
+
+    /**
+     * @brief Creates migrators for one connection or for all connections to migrate.
+     *
+     * @param string|null $connection Connection name, or null for all (see connections()).
+     * @return list<self>
+     * @throws DatabaseException If the connection is unknown or cannot be established.
+     */
+    public static function forConnections(?string $connection = null): array
+    {
+        return array_map(fn(string $name): self => new self($name), $connection !== null ? [$connection] : self::connections());
+    }
+
+    /**
+     * @brief Returns the connection name of this migrator.
+     *
+     * @return string
+     */
+    public function connection(): string
+    {
+        return $this->connection;
+    }
+
+    /**
+     * @brief Returns the database of this migrator's connection.
+     *
+     * @return string
+     */
+    public function database(): string
+    {
+        return $this->db->database();
+    }
+
+    /**
+     * @brief Checks whether this migrator works on the default connection (which holds the core schema).
+     *
+     * @return bool
+     */
+    public function isDefault(): bool
+    {
+        return $this->connection === DB::defaultName();
     }
 
     /**
@@ -225,7 +308,7 @@ class Migrator
     }
 
     /**
-     * @brief Applies the core schema and executes all pending application migrations in order.
+     * @brief Applies the core schema (default connection only) and executes all pending migrations in order.
      *
      * Note: MySQL/MariaDB DDL statements cause an implicit commit, so a failing multi-statement
      * migration cannot be rolled back automatically. Keep one schema change per migration.
@@ -235,7 +318,9 @@ class Migrator
      */
     public function up(): array
     {
-        $this->applyCoreSchema();
+        if ($this->isDefault()) {
+            $this->applyCoreSchema();
+        }
         $this->ensureMigrationTable();
 
         $applied = array_flip(array_column(
@@ -317,7 +402,7 @@ class Migrator
     }
 
     /**
-     * @brief Drops all existing tables in the database.
+     * @brief Drops all existing tables in the database of this connection.
      *
      * @return void
      * @throws DatabaseException On query failure.

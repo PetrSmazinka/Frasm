@@ -12,6 +12,7 @@ return [
         'key'   => '__APP_KEY__',
     ],
 
+    // Default connection (framework tables); further connections: see config/database.php
     'database' => [
         'connections' => [
             'mysql' => [

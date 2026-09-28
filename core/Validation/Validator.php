@@ -1066,7 +1066,28 @@ class Validator
     }
 
     /**
-     * @brief Rule 'unique:table,column[,ignoreValue[,ignoreColumn=id]]' (single indexed lookup).
+     * @brief Resolves the table parameter of 'unique'/'exists': 'table' (default connection) or 'connection.table'.
+     *
+     * @param string|null $parameter Table parameter.
+     * @param string $rule Rule name (for error messages).
+     * @return array{0: DB, 1: string} Connection and quoted table name.
+     * @throws CoreException On invalid identifiers.
+     */
+    protected function tableOf(?string $parameter, string $rule): array
+    {
+        $parts = explode('.', (string)$parameter, 2);
+        if (count($parts) === 2) {
+            if (!preg_match('/^[a-z0-9_]{1,64}$/D', $parts[0])) {
+                throw new CoreException("Validation rule '{$rule}' has an invalid connection name.");
+            }
+            return [DB::connection($parts[0]), $this->sqlIdentifier($parts[1], $rule)];
+        }
+
+        return [DB::getInstance(), $this->sqlIdentifier($parameter, $rule)];
+    }
+
+    /**
+     * @brief Rule 'unique:[connection.]table,column[,ignoreValue[,ignoreColumn=id]]' (single indexed lookup).
      * @param string $field Field name.
      * @param mixed $value Value.
      * @param list<string> $parameters Parameters.
@@ -1080,7 +1101,7 @@ class Validator
             return false;
         }
 
-        $table = $this->sqlIdentifier($parameters[0] ?? null, 'unique');
+        [$db, $table] = $this->tableOf($parameters[0] ?? null, 'unique');
         $column = $this->sqlIdentifier($parameters[1] ?? $field, 'unique');
         $sql = "SELECT 1 FROM {$table} WHERE {$column} = ?";
         $bindings = [$value];
@@ -1091,11 +1112,11 @@ class Validator
             $bindings[] = $parameters[2];
         }
 
-        return DB::getInstance()->selectValue($sql . ' LIMIT 1', $bindings) === null;
+        return $db->selectValue($sql . ' LIMIT 1', $bindings) === null;
     }
 
     /**
-     * @brief Rule 'exists:table,column' (single indexed lookup).
+     * @brief Rule 'exists:[connection.]table,column' (single indexed lookup).
      * @param string $field Field name.
      * @param mixed $value Value.
      * @param list<string> $parameters Parameters.
@@ -1109,9 +1130,9 @@ class Validator
             return false;
         }
 
-        $table = $this->sqlIdentifier($parameters[0] ?? null, 'exists');
+        [$db, $table] = $this->tableOf($parameters[0] ?? null, 'exists');
         $column = $this->sqlIdentifier($parameters[1] ?? $field, 'exists');
 
-        return DB::getInstance()->selectValue("SELECT 1 FROM {$table} WHERE {$column} = ? LIMIT 1", [$value]) !== null;
+        return $db->selectValue("SELECT 1 FROM {$table} WHERE {$column} = ? LIMIT 1", [$value]) !== null;
     }
 }

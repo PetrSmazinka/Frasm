@@ -21,51 +21,61 @@ use Throwable;
  * @class DB
  * @brief High-performance database client providing prepared statements, transactions, and CRUD helpers.
  *
+ * One instance per named connection of `database.connections`, opened on first use:
+ * DB::connection('blog') for an application database, DB::getInstance() (= DB::connection())
+ * for the default connection (`database.default`), which holds the framework tables (frasm_*).
+ * Every connection should use its own database user with rights on its database only.
+ * Transactions never span connections.
+ *
  * Automatically resolves database credentials from Core\Config\Config if not explicitly provided.
  * Translates low-level mysqli driver exceptions into framework-specific DatabaseException instances.
  */
 class DB
 {
     /**
+     * @var string Valid connection name.
+     */
+    private const NAME = '/^[a-z0-9_]{1,64}$/D';
+
+    /**
      * @var mysqli Active database connection instance.
      */
     protected mysqli $connection;
 
     /**
-     * @var array<string, static> Pool of instances supporting singleton subclassing.
+     * @var string Connection name (key of `database.connections`).
+     */
+    protected string $name = '';
+
+    /**
+     * @var string Name of the connected database.
+     */
+    protected string $database = '';
+
+    /**
+     * @var array<string, static> Open connections keyed by class and connection name (singleton subclassing).
      */
     private static array $instances = [];
 
     /**
      * @brief Protected constructor initializing the database connection.
      *
-     * Resolves settings from parameter array or retrieves defaults from Core\Config\Config.
      * Enforces strict error reporting via mysqli_sql_exception.
      *
      * @param array{host?: string, user?: string, password?: string, database?: string, port?: int, charset?: string, sync_timezone?: bool}|null $config
-     * @throws DatabaseException If connection establishment or charset assignment fails.
+     *        Explicit settings, or null to read those of the connection from Core\Config\Config.
+     * @param string|null $name Connection name (null = the default connection).
+     * @throws DatabaseException If the connection is unknown, or connecting or setting the charset fails.
      */
-    protected function __construct(?array $config = null)
+    protected function __construct(?array $config = null, ?string $name = null)
     {
         mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-        if ($config === null) {
-            $defaultConnection = (string)Config::get('database.default', 'mysql');
-            /** @var array<string, mixed> $dbSettings */
-            $dbSettings = Config::get("database.connections.{$defaultConnection}", []);
+        $this->name = $name ?? self::defaultName();
+        $config ??= self::settings($this->name);
+        $this->database = (string)($config['database'] ?? '');
 
-            $config = [
-                'host'     => $dbSettings['host'] ?? '127.0.0.1',
-                'user'     => $dbSettings['username'] ?? '',
-                'password' => $dbSettings['password'] ?? '',
-                'database' => $dbSettings['database'] ?? '',
-                'port'     => (int)($dbSettings['port'] ?? 3306),
-                'charset'  => $dbSettings['charset'] ?? 'utf8mb4',
-                'sync_timezone' => (bool)($dbSettings['sync_timezone'] ?? true),
-            ];
-        }
-
-        $host     = (string)($config['host'] ?? '127.0.0.1');
+        $host    = (string)($config['host'] ?? '127.0.0.1');
         $user     = (string)($config['user'] ?? '');
         $password = (string)($config['password'] ?? '');
         $database = (string)($config['database'] ?? '');
@@ -107,20 +117,96 @@ class DB
     }
 
     /**
-     * @brief Returns the singleton database instance.
+     * @brief Returns the instance of the default connection.
      *
-     * @param array{host?: string, user?: string, password?: string, database?: string, port?: int, charset?: string}|null $config Optional custom configuration.
+     * @param array{host?: string, user?: string, password?: string, database?: string, port?: int, charset?: string}|null $config
+     *        Settings used when this call opens the default connection (tools, tests); null reads the configuration.
      * @return static
      * @throws DatabaseException If connection fails on initialization.
      */
     public static function getInstance(?array $config = null): static
     {
-        $cls = static::class;
-        if (!isset(self::$instances[$cls])) {
-            self::$instances[$cls] = new static($config);
+        $name = self::defaultName();
+        return self::$instances[static::class . '#' . $name] ??= new static($config, $name);
+    }
+
+    /**
+     * @brief Returns the instance of a named connection, opening it on first use.
+     *
+     * @param string|null $name Key of `database.connections`, or null for the default connection.
+     * @return static
+     * @throws DatabaseException If the connection is not configured or cannot be established.
+     */
+    public static function connection(?string $name = null): static
+    {
+        $name ??= self::defaultName();
+        return self::$instances[static::class . '#' . $name] ??= new static(null, $name);
+    }
+
+    /**
+     * @brief Returns the name of the default connection (`database.default`).
+     *
+     * @return string
+     */
+    public static function defaultName(): string
+    {
+        return (string)Config::get('database.default', 'mysql');
+    }
+
+    /**
+     * @brief Returns the configured connection names, the default connection first.
+     *
+     * @return list<string>
+     */
+    public static function connectionNames(): array
+    {
+        $names = array_map('strval', array_keys((array)Config::get('database.connections', [])));
+        return array_values(array_unique([self::defaultName(), ...$names]));
+    }
+
+    /**
+     * @brief Returns the settings of a connection in the form the constructor expects.
+     *
+     * @param string $name Connection name.
+     * @return array{host: string, user: string, password: string, database: string, port: int, charset: string, sync_timezone: bool}
+     * @throws DatabaseException If the name is invalid or the connection is not configured.
+     */
+    public static function settings(string $name): array
+    {
+        $settings = preg_match(self::NAME, $name) ? Config::get("database.connections.{$name}") : null;
+        if (!is_array($settings)) {
+            throw new DatabaseException("Unknown database connection '{$name}' (define it in database.connections).");
         }
 
-        return self::$instances[$cls];
+        return [
+            'host'          => (string)($settings['host'] ?? '127.0.0.1'),
+            'user'          => (string)($settings['username'] ?? ''),
+            'password'      => (string)($settings['password'] ?? ''),
+            'database'      => (string)($settings['database'] ?? ''),
+            'port'          => (int)($settings['port'] ?? 3306),
+            'charset'       => (string)($settings['charset'] ?? 'utf8mb4'),
+            'sync_timezone' => (bool)($settings['sync_timezone'] ?? true),
+        ];
+    }
+
+    /**
+     * @brief Returns the connection name of this instance.
+     *
+     * @return string
+     */
+    public function name(): string
+    {
+        return $this->name;
+    }
+
+    /**
+     * @brief Returns the name of the connected database.
+     *
+     * @return string
+     */
+    public function database(): string
+    {
+        return $this->database;
     }
 
     /**
@@ -407,16 +493,19 @@ class DB
     }
 
     /**
-     * @brief Closes the underlying database connection and clears singleton cache.
+     * @brief Closes open connections; the next use opens them again.
      *
+     * @param string|null $name Connection name, or null for all connections.
      * @return void
      */
-    public static function disconnect(): void
+    public static function disconnect(?string $name = null): void
     {
-        $cls = static::class;
-        if (isset(self::$instances[$cls])) {
-            self::$instances[$cls]->connection->close();
-            unset(self::$instances[$cls]);
+        $prefix = static::class . '#';
+        foreach (array_keys(self::$instances) as $key) {
+            if (str_starts_with($key, $prefix) && ($name === null || $key === $prefix . $name)) {
+                self::$instances[$key]->connection->close();
+                unset(self::$instances[$key]);
+            }
         }
     }
 }

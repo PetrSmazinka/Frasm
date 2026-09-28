@@ -8,6 +8,7 @@ use Core\Config\Config;
 use Core\Console\Command;
 use Core\Console\Input;
 use Core\Console\Output;
+use Core\DB\DB;
 use Core\DB\Migrator;
 use Core\Frasm;
 use Core\Routing\RouteCache;
@@ -58,7 +59,10 @@ final class AboutCommand extends Command
             ['Project root', FRASM_ROOT_DIR],
             ['Debug', (bool)Config::get('app.debug', false) ? 'on' : 'off'],
             ['App key', (string)Config::get('app.key', '') !== '' ? 'set' : 'MISSING (php bin/frasm key:generate)'],
-            ['Database', (string)Config::get('database.connections.mysql.database', '')],
+            ['Databases', implode(', ', array_map(
+                fn(string $name): string => $name . ' → ' . (string)Config::get("database.connections.{$name}.database", '?'),
+                DB::connectionNames()
+            ))],
             ['Core modules', implode(', ', Migrator::enabledModules())],
             ['Route cache', $this->routeCache->isEnabled() ? (is_file($this->routeCache->path()) ? 'enabled, built' : 'enabled, not built') : 'disabled'],
             ['Log directory', (string)Config::get('logging.path', '')],

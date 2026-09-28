@@ -11,7 +11,7 @@ use Core\DB\Migrator;
 
 /**
  * @file DbRollbackCommand.php
- * @brief Rolls back the last batch of application migrations.
+ * @brief Rolls back the latest batch of migrations of one connection.
  */
 final class DbRollbackCommand extends Command
 {
@@ -24,7 +24,17 @@ final class DbRollbackCommand extends Command
     /** @brief Command description. @return string */
     public function description(): string
     {
-        return 'Roll back the last batch of migrations (the core schema is not affected)';
+        return 'Roll back the last batch of migrations of a connection (the core schema is not affected)';
+    }
+
+    /**
+     * @brief Declares options.
+     *
+     * @return array<string, string>
+     */
+    public function options(): array
+    {
+        return ['connection=' => 'Connection to roll back (default: the default connection)'];
     }
 
     /**
@@ -36,13 +46,15 @@ final class DbRollbackCommand extends Command
      */
     public function handle(Input $input, Output $output): int
     {
-        $rolledBack = (new Migrator())->down();
+        $migrator = new Migrator($input->option('connection'));
+        $label = "[{$migrator->connection()} → {$migrator->database()}]";
+        $rolledBack = $migrator->down();
 
         if ($rolledBack === []) {
-            $output->success('Nothing to roll back');
+            $output->success("{$label} Nothing to roll back");
         }
         foreach ($rolledBack as $migration) {
-            $output->success("Rolled back {$migration}");
+            $output->success("{$label} Rolled back {$migration}");
         }
 
         return 0;

@@ -11,7 +11,7 @@ use Core\DB\Migrator;
 
 /**
  * @file DbMigrateCommand.php
- * @brief Applies the core schema and pending application migrations.
+ * @brief Applies the core schema and pending application migrations of every connection.
  */
 final class DbMigrateCommand extends Command
 {
@@ -24,7 +24,17 @@ final class DbMigrateCommand extends Command
     /** @brief Command description. @return string */
     public function description(): string
     {
-        return 'Apply the core schema and run pending migrations';
+        return 'Apply the core schema and run pending migrations (all connections)';
+    }
+
+    /**
+     * @brief Declares options.
+     *
+     * @return array<string, string>
+     */
+    public function options(): array
+    {
+        return ['connection=' => 'Migrate only this connection'];
     }
 
     /**
@@ -36,14 +46,19 @@ final class DbMigrateCommand extends Command
      */
     public function handle(Input $input, Output $output): int
     {
-        $executed = (new Migrator())->up();
-        $output->success('Core schema applied (modules: ' . implode(', ', Migrator::enabledModules()) . ')');
+        foreach (Migrator::forConnections($input->option('connection')) as $migrator) {
+            $label = "[{$migrator->connection()} → {$migrator->database()}]";
+            $executed = $migrator->up();
 
-        if ($executed === []) {
-            $output->success('No pending migrations');
-        }
-        foreach ($executed as $migration) {
-            $output->success("Migrated {$migration}");
+            if ($migrator->isDefault()) {
+                $output->success("{$label} Core schema applied (modules: " . implode(', ', Migrator::enabledModules()) . ')');
+            }
+            if ($executed === []) {
+                $output->success("{$label} No pending migrations");
+            }
+            foreach ($executed as $migration) {
+                $output->success("{$label} Migrated {$migration}");
+            }
         }
 
         return 0;

@@ -431,6 +431,29 @@ Queue::push(new GenerateReportJob($reportId));
 Process jobs with `make worker` while developing; in production run the worker from systemd or cron
 (see [Automation](#automation)).
 
+### Several databases
+
+Give each part of the application its own database and database user – a flaw in one part then cannot
+reach the data of another. Name the connections in `config/database.php` (credentials in `config/local.php`):
+
+```php
+'default' => 'frasm',                 // framework tables: users, tokens, queue, …
+'connections' => [
+    'frasm' => ['database' => 'frasm', 'username' => 'app_frasm', 'password' => '…'],
+    'blog'  => ['database' => 'blog',  'username' => 'app_blog',  'password' => '…'],
+],
+```
+
+```php
+$posts = DB::connection('blog')->select('SELECT * FROM `blog_posts`');   // DB::getInstance() = default
+```
+
+Migrations of a connection go to `database/migrations/<connection>/` (those directly in `database/migrations/`
+belong to the default connection) and every database tracks its own migrations, so it can be backed up and
+restored on its own. `make migrate` runs all connections; `db:rollback`, `db:wipe` and `db:reset` take
+`ARGS=--connection=blog`. Validation rules name the connection as `unique:blog.blog_posts,slug`.
+Transactions and foreign keys stay within one connection.
+
 ## Command-line interface
 
 Everything is available through `make`. The most common tasks have short names; any other Frasm command
