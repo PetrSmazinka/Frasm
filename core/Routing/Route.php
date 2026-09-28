@@ -40,12 +40,14 @@ class Route
      * @param string $path URL path pattern (e.g. '/users/{id}').
      * @param callable|array{class-string, string} $handler Action handler.
      * @param array{regex: string, params: list<string>}|null $compiled Precompiled pattern (route cache); null compiles $path.
+     * @param string|null $domain Domain name of `app.domains` the route is bound to; null = every application host.
      */
     public function __construct(
         protected string $method,
         protected string $path,
         protected mixed $handler,
-        ?array $compiled = null
+        ?array $compiled = null,
+        protected ?string $domain = null
     ) {
         if ($compiled === null) {
             $this->compileRegex($path);
@@ -73,6 +75,16 @@ class Route
     public function getPath(): string
     {
         return $this->path;
+    }
+
+    /**
+     * @brief Returns the domain the route is bound to.
+     *
+     * @return string|null Domain name of `app.domains`, or null when the route answers on every application host.
+     */
+    public function getDomain(): ?string
+    {
+        return $this->domain;
     }
 
     /**
@@ -110,7 +122,7 @@ class Route
      *
      * Only routes with [class-string, method] handlers can be exported (closures are not serializable).
      *
-     * @return array{method: string, path: string, handler: array{0: class-string, 1: string}, regex: string, params: list<string>, metadata: array<string, mixed>}
+     * @return array{method: string, path: string, domain: string|null, handler: array{0: class-string, 1: string}, regex: string, params: list<string>, metadata: array<string, mixed>}
      * @throws \LogicException If the handler is not a [class, method] pair.
      */
     public function toArray(): array
@@ -122,6 +134,7 @@ class Route
         return [
             'method'   => $this->method,
             'path'     => $this->path,
+            'domain'   => $this->domain,
             'handler'  => [$this->handler[0], (string)$this->handler[1]],
             'regex'    => $this->regex,
             'params'   => $this->parameterNames,
@@ -132,7 +145,7 @@ class Route
     /**
      * @brief Restores a route from its cached array form without recompiling the regex.
      *
-     * @param array{method: string, path: string, handler: array{0: class-string, 1: string}, regex: string, params: list<string>, metadata: array<string, mixed>} $data Cached route.
+     * @param array{method: string, path: string, domain?: string|null, handler: array{0: class-string, 1: string}, regex: string, params: list<string>, metadata: array<string, mixed>} $data Cached route.
      * @return self
      */
     public static function fromArray(array $data): self
@@ -140,7 +153,7 @@ class Route
         $route = new self($data['method'], $data['path'], $data['handler'], [
             'regex'  => $data['regex'],
             'params' => $data['params'],
-        ]);
+        ], $data['domain'] ?? null);
         $route->metadata = $data['metadata'];
 
         return $route;

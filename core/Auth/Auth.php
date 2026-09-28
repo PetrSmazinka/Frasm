@@ -413,6 +413,7 @@ class Auth
         setcookie(self::rememberCookieName(), "{$selector}:{$validator}", [
             'expires'  => time() + ($lifetimeDays * 86400),
             'path'     => '/',
+            'domain'   => Session::cookieDomain(),
             'secure'   => self::request()->isSecure(),
             'httponly' => true,
             'samesite' => 'Lax',
@@ -446,6 +447,7 @@ class Auth
         setcookie(self::rememberCookieName(), '', [
             'expires'  => time() - 3600,
             'path'     => '/',
+            'domain'   => Session::cookieDomain(),
             'secure'   => self::request()->isSecure(),
             'httponly' => true,
             'samesite' => 'Lax',

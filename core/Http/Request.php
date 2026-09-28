@@ -431,6 +431,17 @@ class Request
     }
 
     /**
+     * @brief Returns the port given explicitly in the Host header (e.g. 8000 for 'localhost:8000').
+     *
+     * @return int|null Port, or null when the client used the default port of the scheme.
+     */
+    public function port(): ?int
+    {
+        $host = (string)($this->header('Host') ?? '');
+        return preg_match('/:(\d{1,5})$/D', $host, $matches) ? (int)$matches[1] : null;
+    }
+
+    /**
      * @brief Returns the Content-Type media type without parameters (e.g. 'application/json').
      *
      * @return string

@@ -27,6 +27,7 @@ use Core\Logger\Logger;
 use Core\Logger\LoggerInterface;
 use Core\Logger\LogLevel;
 use Core\RateLimit\RateLimiter;
+use Core\Routing\Domains;
 use Core\Routing\Router;
 
 defined('FRASM_ROOT_DIR') || define('FRASM_ROOT_DIR', dirname(__DIR__));
@@ -96,6 +97,9 @@ $container->singleton(\Core\Queue\DatabaseQueue::class, fn(): \Core\Queue\Databa
     (int)Config::get('queue.retry_after', 300)
 ));
 $container->singleton(\Core\Queue\QueueInterface::class, fn(Container $c): \Core\Queue\QueueInterface => $c->get(\Core\Queue\DatabaseQueue::class));
+$container->singleton(Domains::class, fn(): Domains => new Domains(
+    (array)Config::get('app.domains', [])
+));
 $container->singleton(Router::class);
 $container->singleton(MiddlewareResolver::class);
 $container->singleton(ErrorHandler::class);

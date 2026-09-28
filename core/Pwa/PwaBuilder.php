@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Core\Pwa;
 
 use Core\Config\Config;
+use Core\Container\Container;
 use Core\Exceptions\CoreException;
+use Core\Routing\Domains;
 use GdImage;
 
 /**
@@ -29,6 +31,11 @@ use GdImage;
  *
  * Android (Chrome) does not install two apps whose scopes are nested ("/" and "/smarthome") side by
  * side; install one of them per device, or serve independent apps from separate (sub)domains.
+ *
+ * An app with `domain` (a name of `app.domains`, also `pwa.domain` for the main app) is offered only on
+ * the hosts of that domain, with the scope "/" by default; being a separate origin, it installs next to
+ * the main app. On a host whose domain has bound apps only those are considered; every other host
+ * offers the apps without `domain`.
  *
  * Icons are made from a PNG, JPEG, GIF or WebP with GD, or from an SVG with rsvg-convert (librsvg).
  */
@@ -84,20 +91,28 @@ class PwaBuilder
      * @brief Finds the built app whose scope contains a path (longest scope wins).
      *
      * @param string $path Request path relative to the base path (Request::path()).
+     * @param string|null $host Request host; apps bound to its domain take precedence over unbound apps.
      * @return array{app: string, scope: string, manifest: string, apple_icon: string, theme_color: string, title: string}|null
      *         URLs relative to the base path, or null when PWA is off or no app covers the path.
      */
-    public static function forPath(string $path): ?array
+    public static function forPath(string $path, ?string $host = null): ?array
     {
         if (!self::isEnabled()) {
             return null;
         }
 
         $builder = new self();
+        $apps = $builder->appNames();
+
+        // Apps of the host's domain; without any, the apps not bound to a domain
+        $domain = $host !== null ? (self::domains()->resolve($host)['name'] ?? null) : null;
+        $bound = $domain === null ? [] : array_filter($apps, fn(string $app): bool => self::configuredDomain($app) === $domain);
+        $candidates = $bound !== [] ? $bound : array_filter($apps, fn(string $app): bool => self::configuredDomain($app) === null);
+
         $best = null;
         $bestLength = -1;
-        foreach ($builder->appNames() as $app) {
-            $scope = $app === self::MAIN ? '/' : (string)(Config::get("pwa.apps.{$app}.scope") ?? Config::get("pwa.apps.{$app}.start_url") ?? '');
+        foreach ($candidates as $app) {
+            $scope = self::configuredScope($app);
             if (!self::inScope($path, $scope) || strlen($scope) <= $bestLength || !is_file($builder->manifestPath($app))) {
                 continue;
             }
@@ -120,6 +135,45 @@ class PwaBuilder
             'theme_color' => $settings['theme_color'],
             'title'       => $settings['short_name'],
         ];
+    }
+
+    /**
+     * @brief Returns the domain an app is bound to, as configured (not validated).
+     *
+     * @param string $app App name (MAIN for the main app).
+     * @return string|null Domain name, or null for an app offered on every host.
+     */
+    private static function configuredDomain(string $app): ?string
+    {
+        $domain = Config::get($app === self::MAIN ? 'pwa.domain' : "pwa.apps.{$app}.domain");
+        return is_string($domain) && $domain !== '' ? $domain : null;
+    }
+
+    /**
+     * @brief Returns the scope of an app, as configured (not validated).
+     *
+     * @param string $app App name (MAIN for the main app).
+     * @return string Scope path; the main app and apps bound to a domain default to "/", other apps to their start_url.
+     */
+    private static function configuredScope(string $app): string
+    {
+        if ($app === self::MAIN) {
+            return '/';
+        }
+
+        return (string)(Config::get("pwa.apps.{$app}.scope")
+            ?? Config::get("pwa.apps.{$app}.start_url")
+            ?? (self::configuredDomain($app) !== null ? '/' : ''));
+    }
+
+    /**
+     * @brief Returns the named application hosts.
+     *
+     * @return Domains
+     */
+    private static function domains(): Domains
+    {
+        return Container::getInstance()->get(Domains::class);
     }
 
     /**
@@ -200,7 +254,7 @@ class PwaBuilder
      * @brief Returns the validated settings of an app (additional apps inherit from the main app).
      *
      * @param string $app App name.
-     * @return array{name: string, short_name: string, description: string, lang: string, start_url: string, scope: string, display: string, theme_color: string, background_color: string, icon: string|null}
+     * @return array{name: string, short_name: string, description: string, lang: string, start_url: string, scope: string, display: string, theme_color: string, background_color: string, icon: string|null, domain: string|null}
      * @throws CoreException On invalid configuration values.
      */
     public function settings(string $app = self::MAIN): array
@@ -215,6 +269,7 @@ class PwaBuilder
             'theme_color'      => (string)Config::get('pwa.theme_color', '#343a40'),
             'background_color' => (string)Config::get('pwa.background_color', '#ffffff'),
             'icon'             => Config::get('pwa.icon'),
+            'domain'           => Config::get('pwa.domain'),
         ];
         $main['short_name'] = (string)(Config::get('pwa.short_name') ?? $main['name']);
 
@@ -230,7 +285,7 @@ class PwaBuilder
             if (!isset($own['name']) || trim((string)$own['name']) === '') {
                 throw new CoreException("{$key}.name is required.");
             }
-            $scope = (string)($own['scope'] ?? $own['start_url'] ?? '');
+            $scope = self::configuredScope($app);
             $settings = [
                 'name'             => (string)$own['name'],
                 'short_name'       => (string)($own['short_name'] ?? $own['name']),
@@ -242,7 +297,16 @@ class PwaBuilder
                 'theme_color'      => (string)($own['theme_color'] ?? $main['theme_color']),
                 'background_color' => (string)($own['background_color'] ?? $main['background_color']),
                 'icon'             => $own['icon'] ?? null,
+                'domain'           => $own['domain'] ?? null,
             ];
+        }
+
+        if ($settings['domain'] === '') {
+            $settings['domain'] = null;
+        }
+        if ($settings['domain'] !== null && (!is_string($settings['domain']) || !self::domains()->has($settings['domain']))) {
+            $domain = is_scalar($settings['domain']) ? (string)$settings['domain'] : gettype($settings['domain']);
+            throw new CoreException("{$key}.domain '{$domain}' is not defined in app.domains.");
         }
 
         if (!in_array($settings['display'], self::DISPLAY_MODES, true)) {

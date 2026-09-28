@@ -31,11 +31,17 @@ return [
     // or an SVG (needs rsvg-convert from librsvg2-bin). null = a placeholder in the theme color.
     'icon' => null,
 
+    // Offer the main app only on the hosts of this app.domains name (null = on every host without its own app)
+    'domain' => null,
+
     // Further installable apps for parts of the site, each with its own scope, name, colors and icon.
     // Pages within a scope offer that app instead of the main one (the longest scope wins). Missing
     // lang, display and colors are taken over from the main app. Example:
     //   'smarthome' => ['name' => 'SmartHome', 'scope' => '/smarthome', 'theme_color' => '#0b0e14',
     //                   'background_color' => '#0b0e14', 'icon' => 'app/Assets/img/smarthome.svg'],
     // (start_url defaults to the scope; write the scope without a trailing slash, so it covers /smarthome itself)
+    // An app on its own subdomain names it with 'domain' (see app.domains); its scope defaults to "/" and,
+    // being a separate origin, it can be installed next to the main app:
+    //   'smarthome' => ['name' => 'SmartHome', 'domain' => 'smarthome', 'icon' => 'app/Assets/img/smarthome.svg'],
     'apps' => [],
 ];

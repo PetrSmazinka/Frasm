@@ -176,6 +176,59 @@ class ArticleController extends BaseController
 
 Actions may return a string (HTML), an array (JSON) or a `Core\Http\Response`.
 
+### Subdomains
+
+One project can serve several (sub)domains. Name the hosts in `config/local.php` and bind controllers
+(or single actions) to a name with `#[Domain]`:
+
+```php
+'app' => [
+    'domains' => [
+        'main'      => ['example.com', 'www.example.com'],   // the first host is used for links
+        'smarthome' => 'smarthome.example.com',
+        'tenant'    => '{tenant}.example.com',               // a placeholder stands for one label
+    ],
+],
+```
+
+```php
+#[Domain('smarthome')]
+class SmarthomeController extends BaseController
+{
+    #[Get('/')]                                 // https://smarthome.example.com/
+    public function index(): string { /* ... */ }
+}
+
+#[Domain('tenant')]
+class ShopController extends BaseController
+{
+    #[Get('/orders/{id}')]                      // https://acme.example.com/orders/7
+    public function order(string $tenant, int $id): string { /* ... */ }
+}
+```
+
+Routes of the requested domain win; routes without `#[Domain]` answer on every listed host. Once
+`app.domains` is set, any other host – a bare IP address, a forged `Host` header – gets 404, so list every
+host that must keep working (for example the server's LAN address under `main`). In development map the
+names to `localhost`, `smarthome.localhost` and `{tenant}.localhost` in `config/local.php`: browsers resolve
+`*.localhost` to your machine, so `make serve` handles all of them.
+
+Link across domains with `url()`: `url('/login')` stays on the current host, `url('/', 'smarthome')` goes to
+the smarthome domain and `url('/orders', 'tenant', ['tenant' => 'acme'])` fills the placeholder (from a tenant's
+page, its own value is used when omitted). The request attributes `domain` and `domain_params` tell every action
+which domain it runs on.
+
+Every subdomain has its own login by default. To share it, set `'session' => ['domain' => 'example.com']`
+and give the cookies names of their own (`session.name`, `auth.remember_cookie`): all subdomains – including
+other applications hosted there – receive them.
+
+Apache serves all hosts from one virtual host (a placeholder domain needs a wildcard DNS record and certificate):
+
+```apache
+ServerName example.com
+ServerAlias www.example.com smarthome.example.com *.example.com
+```
+
 ### Views and navigation
 
 Views are plain PHP templates in `app/Views`. Put `<?= frasm_head() ?>` in the `<head>` of your layout:
@@ -323,6 +376,13 @@ offer that app instead of the main one:
 scope, so push subscriptions made in an app belong to it and Android shows their notifications as notifications
 of that app. Android does not install two apps with nested scopes (`/` and `/smarthome`) on one device: install
 one of them, or serve independent apps from separate subdomains.
+
+An app on its own [subdomain](#subdomains) names it instead of a scope. Pages of that domain then offer this
+app (its scope defaults to `/`), and as a separate origin it installs next to the main app:
+
+```php
+'smarthome' => ['name' => 'SmartHome', 'domain' => 'smarthome', 'icon' => 'app/Assets/img/home.svg'],
+```
 
 Subscriptions remember the app they were made in, so notifications about a part of the site can go to that
 app only: `PushTarget::user($id)->inApp('smarthome')` in code, `make push:send ARGS='"Doorbell" --user=1 --app=smarthome'`

@@ -30,7 +30,7 @@ class RouteCache
     /**
      * @var int Cache format version; bump when the Route array layout changes.
      */
-    public const VERSION = 1;
+    public const VERSION = 2;
 
     /**
      * @brief Checks whether route caching is enabled.

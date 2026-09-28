@@ -49,12 +49,17 @@ final class RouteListCommand extends Command
     {
         $this->kernel->boot();
 
+        $routes = $this->kernel->router()->getRoutes();
+        // The Domain column is shown only when some route is bound to a domain
+        $withDomain = array_filter($routes, fn($route): bool => $route->getDomain() !== null) !== [];
+
         $rows = [];
-        foreach ($this->kernel->router()->getRoutes() as $route) {
+        foreach ($routes as $route) {
             $handler = $route->getHandler();
             $roles = $route->getMetadata('auth_roles');
             $rows[] = [
                 $route->getMethod(),
+                ...($withDomain ? [$route->getDomain() ?? '*'] : []),
                 $route->getPath(),
                 is_array($handler) ? $handler[0] . '::' . $handler[1] : 'Closure',
                 $roles === null ? '' : ($roles === [] ? 'auth' : 'auth:' . implode(',', $roles)),
@@ -62,7 +67,7 @@ final class RouteListCommand extends Command
             ];
         }
 
-        $output->table(['Method', 'Path', 'Handler', 'Auth', 'Middleware'], $rows);
+        $output->table(['Method', ...($withDomain ? ['Domain'] : []), 'Path', 'Handler', 'Auth', 'Middleware'], $rows);
         $output->line();
         $output->comment('Route cache: ' . ($this->routeCache->isEnabled() ? 'enabled' : 'disabled')
             . (is_file($this->routeCache->path()) ? ', built' : ', not built')

@@ -45,6 +45,32 @@ if (!function_exists('asset')) {
     }
 }
 
+if (!function_exists('url')) {
+    /**
+     * @brief Returns an absolute URL on the current host or on another domain of `app.domains`.
+     *
+     * url('/login') stays on the current host; url('/', 'smarthome') links to the smarthome domain and
+     * url('/dashboard', 'tenant', ['tenant' => 'acme']) fills the {tenant} placeholder (missing values
+     * are taken over from the current host). Scheme, port and base path follow the current request.
+     *
+     * @param string $path Path within the application, optionally with a query string.
+     * @param string|null $domain Domain name, or null for the current host.
+     * @param array<string, string|int> $params Placeholder values of the domain.
+     * @return string
+     * @throws \Core\Exceptions\CoreException On an unknown domain, a missing or invalid placeholder
+     *                                         value, or a host not listed in app.domains.
+     */
+    function url(string $path = '/', ?string $domain = null, array $params = []): string
+    {
+        $container = \Core\Container\Container::getInstance();
+        $request = $container->bound(\Core\Http\Request::class)
+            ? $container->get(\Core\Http\Request::class)
+            : \Core\Http\Request::fromGlobals();
+
+        return $container->get(\Core\Routing\Domains::class)->url($request, $path, $domain, $params);
+    }
+}
+
 if (!function_exists('frasm_head')) {
     /**
      * @brief Returns the framework <head> markup: base path, CSRF token, Web Push key and client scripts.
@@ -54,7 +80,8 @@ if (!function_exists('frasm_head')) {
      *
      * When `pwa.enabled` is on and `php bin/frasm pwa:build` has generated the manifests, it also links
      * the manifest and icons of the app whose scope contains the current page (the main app, or one
-     * of `pwa.apps` such as /smarthome) and registers the service worker (feature 'pwa').
+     * of `pwa.apps` such as /smarthome or an app bound to the current subdomain) and registers the
+     * service worker (feature 'pwa').
      *
      * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push', 'pwa'
      *                                     (null = nav + live + stream, plus push and pwa when enabled).
@@ -69,7 +96,7 @@ if (!function_exists('frasm_head')) {
             : \Core\Http\Request::fromGlobals();
 
         $pushEnabled = \Core\Push\PushManager::isEnabled();
-        $pwaApp = \Core\Pwa\PwaBuilder::forPath($request->path());
+        $pwaApp = \Core\Pwa\PwaBuilder::forPath($request->path(), $request->host());
         $pwaEnabled = $pwaApp !== null;
 
         if ($features === null) {

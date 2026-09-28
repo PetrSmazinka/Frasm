@@ -18,6 +18,7 @@ use Core\Http\Middleware\Pipeline;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Routing\Attributes\Authorize;
+use Core\Routing\Attributes\Domain;
 use Core\Routing\Attributes\Middleware as MiddlewareAttribute;
 use Core\Routing\Attributes\Route as RouteAttribute;
 use Core\Scheduling\Schedule;
@@ -43,6 +44,10 @@ use Throwable;
  * Controllers and closures are invoked through the DI container, so constructor and action
  * parameters are autowired; route placeholders are injected by parameter name and coerced to the
  * declared scalar type (an uncoercible value such as 'abc' for `int $id` yields 404).
+ *
+ * Routes may be bound to a named domain of `app.domains` (#[Domain]); placeholders of the host
+ * ('{tenant}.example.com') are injected like path placeholders. Routes of the request's domain are
+ * matched before unbound routes, which answer on every application host.
  */
 class Router
 {
@@ -52,14 +57,20 @@ class Router
     protected array $routes = [];
 
     /**
-     * @var array<string, array<string, Route>> Placeholder-free routes indexed by method and normalized path.
+     * @var array<string, array<string, array<string, Route>>> Placeholder-free routes indexed by domain
+     *      ('' = unbound), method and normalized path.
      */
     protected array $staticRoutes = [];
 
     /**
-     * @var list<Route> Routes with placeholders, matched by regex in registration order.
+     * @var array<string, list<Route>> Routes with placeholders by domain ('' = unbound), matched by regex in registration order.
      */
     protected array $dynamicRoutes = [];
+
+    /**
+     * @var Domains|null Named application hosts (resolved lazily from the container).
+     */
+    protected ?Domains $domains = null;
 
     /**
      * @var Container Container used to instantiate controllers and middleware.
@@ -82,13 +93,50 @@ class Router
      * @param string $method HTTP method.
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains` the route is bound to; null = every application host.
      * @return Route Created route instance.
+     * @throws CoreException If the domain is unknown or shares a placeholder name with the path.
      */
-    public function addRoute(string $method, string $path, mixed $handler): Route
+    public function addRoute(string $method, string $path, mixed $handler, ?string $domain = null): Route
     {
-        $route = new Route(strtoupper($method), $path, $handler);
+        $route = new Route(strtoupper($method), $path, $handler, null, $domain);
+        if ($domain !== null) {
+            $this->assertDomain($route);
+        }
         $this->indexRoute($route);
         return $route;
+    }
+
+    /**
+     * @brief Verifies that a bound route refers to a configured domain and that its placeholders are unique.
+     *
+     * @param Route $route Route bound to a domain.
+     * @return void
+     * @throws CoreException If the domain is unknown or a placeholder name is used by both the host and the path.
+     */
+    protected function assertDomain(Route $route): void
+    {
+        $domain = (string)$route->getDomain();
+        $label = "Route '{$route->getMethod()} {$route->getPath()}'";
+
+        if (!$this->domains()->has($domain)) {
+            throw new CoreException("{$label} is bound to the unknown domain '{$domain}' (define it in app.domains).");
+        }
+
+        $shared = array_intersect($route->getParameterNames(), $this->domains()->parameterNames($domain));
+        if ($shared !== []) {
+            throw new CoreException("{$label} uses the placeholder {" . reset($shared) . "} in both its host and its path.");
+        }
+    }
+
+    /**
+     * @brief Returns the named application hosts.
+     *
+     * @return Domains
+     */
+    protected function domains(): Domains
+    {
+        return $this->domains ??= $this->container->get(Domains::class);
     }
 
     /**
@@ -131,12 +179,13 @@ class Router
     protected function indexRoute(Route $route): void
     {
         $this->routes[] = $route;
+        $domain = $route->getDomain() ?? '';
 
         if ($route->isStatic()) {
             // First registration wins, consistent with ordered matching
-            $this->staticRoutes[$route->getMethod()][$route->getNormalizedPath()] ??= $route;
+            $this->staticRoutes[$domain][$route->getMethod()][$route->getNormalizedPath()] ??= $route;
         } else {
-            $this->dynamicRoutes[] = $route;
+            $this->dynamicRoutes[$domain][] = $route;
         }
     }
 
@@ -145,11 +194,12 @@ class Router
      *
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains`; null = every application host.
      * @return Route
      */
-    public function get(string $path, mixed $handler): Route
+    public function get(string $path, mixed $handler, ?string $domain = null): Route
     {
-        return $this->addRoute('GET', $path, $handler);
+        return $this->addRoute('GET', $path, $handler, $domain);
     }
 
     /**
@@ -157,11 +207,12 @@ class Router
      *
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains`; null = every application host.
      * @return Route
      */
-    public function post(string $path, mixed $handler): Route
+    public function post(string $path, mixed $handler, ?string $domain = null): Route
     {
-        return $this->addRoute('POST', $path, $handler);
+        return $this->addRoute('POST', $path, $handler, $domain);
     }
 
     /**
@@ -169,11 +220,12 @@ class Router
      *
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains`; null = every application host.
      * @return Route
      */
-    public function put(string $path, mixed $handler): Route
+    public function put(string $path, mixed $handler, ?string $domain = null): Route
     {
-        return $this->addRoute('PUT', $path, $handler);
+        return $this->addRoute('PUT', $path, $handler, $domain);
     }
 
     /**
@@ -181,11 +233,12 @@ class Router
      *
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains`; null = every application host.
      * @return Route
      */
-    public function patch(string $path, mixed $handler): Route
+    public function patch(string $path, mixed $handler, ?string $domain = null): Route
     {
-        return $this->addRoute('PATCH', $path, $handler);
+        return $this->addRoute('PATCH', $path, $handler, $domain);
     }
 
     /**
@@ -193,22 +246,23 @@ class Router
      *
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
+     * @param string|null $domain Domain name of `app.domains`; null = every application host.
      * @return Route
      */
-    public function delete(string $path, mixed $handler): Route
+    public function delete(string $path, mixed $handler, ?string $domain = null): Route
     {
-        return $this->addRoute('DELETE', $path, $handler);
+        return $this->addRoute('DELETE', $path, $handler, $domain);
     }
 
     /**
      * @brief Scans a controller class using PHP Reflection and registers attributed routes.
      *
-     * Reads #[Route]/#[Get]/#[Post]/#[Put]/#[Patch]/#[Delete], #[Authorize] and #[Middleware].
+     * Reads #[Route]/#[Get]/#[Post]/#[Put]/#[Patch]/#[Delete], #[Domain], #[Authorize] and #[Middleware].
      * Only attributes of these types are instantiated, so foreign attributes are ignored.
      *
      * @param class-string $controllerClass Fully qualified class name.
      * @return void
-     * @throws CoreException If class does not exist.
+     * @throws CoreException If class does not exist or a route is bound to an unknown domain.
      */
     public function registerController(string $controllerClass): void
     {
@@ -228,7 +282,9 @@ class Router
             $basePath = trim($classRoutes[0]->newInstance()->path, '/');
         }
 
-        // Class-level authorization and middleware
+        // Class-level domain, authorization and middleware
+        $classDomain = $refClass->getAttributes(Domain::class);
+        $classDomain = $classDomain !== [] ? $classDomain[0]->newInstance()->name : null;
         $classAuthorize = $refClass->getAttributes(Authorize::class);
         $classRoles = $classAuthorize !== [] ? (array)$classAuthorize[0]->newInstance()->roles : null;
         $classMiddleware = $this->collectMiddleware($refClass->getAttributes(MiddlewareAttribute::class));
@@ -243,7 +299,11 @@ class Router
                 continue;
             }
 
-            // Method-level authorization overrides class-level
+            // Method-level domain and authorization override class-level
+            $methodDomain = $method->getAttributes(Domain::class);
+            $domain = $methodDomain !== [] ? $methodDomain[0]->newInstance()->name : $classDomain;
+            $hostParams = $domain !== null ? $this->domains()->parameterNames($domain) : [];
+
             $methodAuthorize = $method->getAttributes(Authorize::class);
             $methodRoles = $methodAuthorize !== [] ? (array)$methodAuthorize[0]->newInstance()->roles : $classRoles;
 
@@ -267,7 +327,7 @@ class Router
                 $segments = array_filter([$basePath, $methodPath], fn(string $s): bool => $s !== '');
                 $fullPath = '/' . implode('/', $segments);
 
-                $route = $this->addRoute($instance->method, $fullPath, [$controllerClass, $method->getName()]);
+                $route = $this->addRoute($instance->method, $fullPath, [$controllerClass, $method->getName()], $domain);
 
                 if ($methodRoles !== null) {
                     $route->setMetadata('auth_roles', array_values($methodRoles));
@@ -275,7 +335,7 @@ class Router
                 if ($middleware !== []) {
                     $route->setMetadata('middleware', $middleware);
                 }
-                if (!$route->isStatic()) {
+                if (!$route->isStatic() || $hostParams !== []) {
                     // Resolved now so cached routes never need reflection at dispatch time
                     $route->setMetadata('param_types', $this->reflectParameterTypes($route->getHandler()));
                 }
@@ -351,12 +411,17 @@ class Router
     /**
      * @brief Finds the route matching the request.
      *
-     * Static routes (no placeholders) are resolved by an O(1) lookup and take precedence over
-     * placeholder routes, which are tried in registration order. HEAD requests fall back to GET routes.
+     * With `app.domains` configured, the host is resolved first: an unknown host yields 404, routes of
+     * its domain are tried before unbound routes, and the request attributes 'domain' (name or null)
+     * and 'domain_params' (host placeholder values) are set, also for error pages.
+     *
+     * Within each group, static routes (no placeholders) are resolved by an O(1) lookup and take
+     * precedence over placeholder routes, which are tried in registration order. HEAD requests fall
+     * back to GET routes.
      *
      * @param Request $request Incoming request.
-     * @return array{0: Route, 1: array<string, string>} Matched route and its raw placeholder values.
-     * @throws RouteNotFoundException If no route pattern matches the path.
+     * @return array{0: Route, 1: array<string, string>} Matched route and its raw placeholder values (host and path).
+     * @throws RouteNotFoundException If the host is unknown or no route pattern matches the path.
      * @throws MethodNotAllowedException If the path matches only routes of other methods.
      */
     public function match(Request $request): array
@@ -364,44 +429,27 @@ class Router
         $path = $request->path();
         $method = $request->method();
 
-        if (isset($this->staticRoutes[$method][$path])) {
-            return [$this->staticRoutes[$method][$path], []];
+        $resolved = null;
+        if ($this->domains()->isEnabled()) {
+            $resolved = $this->domains()->resolve($request->host());
+            if ($resolved === null) {
+                throw new RouteNotFoundException("The host '{$request->host()}' is not listed in app.domains.", 404);
+            }
         }
+        $request->setAttribute('domain', $resolved['name'] ?? null)
+            ->setAttribute('domain_params', $resolved['params'] ?? []);
 
         $allowed = [];
-        $getFallback = null;
-
-        foreach ($this->dynamicRoutes as $route) {
-            $params = $route->match($path);
-            if ($params === null) {
-                continue;
-            }
-
-            $routeMethod = $route->getMethod();
-            if ($routeMethod === $method) {
-                return [$route, $params];
-            }
-
-            if ($routeMethod === 'GET' && $getFallback === null) {
-                $getFallback = [$route, $params];
-            }
-
-            $allowed[$routeMethod] = true;
-        }
-
-        if ($method === 'HEAD') {
-            if (isset($this->staticRoutes['GET'][$path])) {
-                return [$this->staticRoutes['GET'][$path], []];
-            }
-            if ($getFallback !== null) {
-                return $getFallback;
+        if ($resolved !== null) {
+            $found = $this->matchGroup($resolved['name'], $method, $path, $allowed);
+            if ($found !== null) {
+                return [$found[0], $resolved['params'] + $found[1]];
             }
         }
 
-        foreach ($this->staticRoutes as $routeMethod => $paths) {
-            if (isset($paths[$path])) {
-                $allowed[$routeMethod] = true;
-            }
+        $found = $this->matchGroup('', $method, $path, $allowed);
+        if ($found !== null) {
+            return $found;
         }
 
         if ($allowed !== []) {
@@ -421,11 +469,66 @@ class Router
     }
 
     /**
+     * @brief Matches the routes of one domain group.
+     *
+     * @param string $domain Domain name, or '' for unbound routes.
+     * @param string $method Request method.
+     * @param string $path Normalized request path.
+     * @param array<string, true> $allowed Methods of routes matching the path (extended for the 405 response).
+     * @return array{0: Route, 1: array<string, string>}|null Matched route and its path placeholder values.
+     */
+    protected function matchGroup(string $domain, string $method, string $path, array &$allowed): ?array
+    {
+        $static = $this->staticRoutes[$domain] ?? [];
+        if (isset($static[$method][$path])) {
+            return [$static[$method][$path], []];
+        }
+
+        $getFallback = null;
+
+        foreach ($this->dynamicRoutes[$domain] ?? [] as $route) {
+            $params = $route->match($path);
+            if ($params === null) {
+                continue;
+            }
+
+            $routeMethod = $route->getMethod();
+            if ($routeMethod === $method) {
+                return [$route, $params];
+            }
+
+            if ($routeMethod === 'GET' && $getFallback === null) {
+                $getFallback = [$route, $params];
+            }
+
+            $allowed[$routeMethod] = true;
+        }
+
+        if ($method === 'HEAD') {
+            if (isset($static['GET'][$path])) {
+                return [$static['GET'][$path], []];
+            }
+            if ($getFallback !== null) {
+                return $getFallback;
+            }
+        }
+
+        foreach ($static as $routeMethod => $paths) {
+            if (isset($paths[$path])) {
+                $allowed[$routeMethod] = true;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @brief Dispatches the request: matches a route, runs its middleware and invokes the handler.
      *
      * Route middleware order: path groups (`middleware.paths`), AuthorizeMiddleware (when the route
      * carries #[Authorize]), class-level #[Middleware], method-level #[Middleware].
-     * The matched Route and its parameters are exposed as request attributes 'route' and 'route_params'.
+     * The matched Route and its parameters are exposed as request attributes 'route' and 'route_params'
+     * (the latter includes host placeholders); 'domain' and 'domain_params' are set by match().
      *
      * @param Request $request Incoming request.
      * @param (Closure(Throwable, Request): Response)|null $exceptionRenderer Converts exceptions inside the route pipeline to responses.

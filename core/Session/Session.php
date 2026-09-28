@@ -67,6 +67,7 @@ class Session
             session_set_cookie_params([
                 'lifetime' => (int)Config::get('session.lifetime', 0),
                 'path'     => '/',
+                'domain'   => self::cookieDomain(),
                 'secure'   => self::request()->isSecure(),
                 'httponly' => true,
                 'samesite' => (string)Config::get('session.same_site', 'Lax'),
@@ -74,6 +75,26 @@ class Session
         }
 
         session_start();
+    }
+
+    /**
+     * @brief Returns the domain of the session and remember-me cookies (`session.domain`).
+     *
+     * A domain such as 'example.com' shares the login with all its subdomains. It is used only when
+     * the request host lies within it; elsewhere (e.g. localhost during development) browsers would
+     * reject the cookie, so a host-only cookie is issued instead.
+     *
+     * @return string Cookie domain, or '' for a host-only cookie.
+     */
+    public static function cookieDomain(): string
+    {
+        $domain = ltrim(strtolower(trim((string)Config::get('session.domain', ''))), '.');
+        if ($domain === '') {
+            return '';
+        }
+
+        $host = self::request()->host();
+        return $host === $domain || str_ends_with($host, '.' . $domain) ? $domain : '';
     }
 
     /**
