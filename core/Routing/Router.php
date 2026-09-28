@@ -411,13 +411,14 @@ class Router
     /**
      * @brief Finds the route matching the request.
      *
-     * With `app.domains` configured, the host is resolved first: an unknown host yields 404, routes of
-     * its domain are tried before unbound routes, and the request attributes 'domain' (name or null)
-     * and 'domain_params' (host placeholder values) are set, also for error pages.
+     * With `app.domains` configured, the host is resolved first: an unknown host yields 404, and the
+     * request attributes 'domain' (name or null) and 'domain_params' (host placeholder values) are set,
+     * also for error pages.
      *
-     * Within each group, static routes (no placeholders) are resolved by an O(1) lookup and take
-     * precedence over placeholder routes, which are tried in registration order. HEAD requests fall
-     * back to GET routes.
+     * Static routes (no placeholders) are resolved by an O(1) lookup and take precedence over
+     * placeholder routes, also across groups, so a global '/login' is not shadowed by a domain's
+     * '/{slug}'. Within each kind the routes of the request's domain come before unbound routes;
+     * placeholder routes are tried in registration order. HEAD requests fall back to GET routes.
      *
      * @param Request $request Incoming request.
      * @return array{0: Route, 1: array<string, string>} Matched route and its raw placeholder values (host and path).
@@ -439,17 +440,58 @@ class Router
         $request->setAttribute('domain', $resolved['name'] ?? null)
             ->setAttribute('domain_params', $resolved['params'] ?? []);
 
-        $allowed = [];
+        // Groups in order of precedence: the host's domain (with its placeholder values), then unbound routes
+        $groups = [['', []]];
         if ($resolved !== null) {
-            $found = $this->matchGroup($resolved['name'], $method, $path, $allowed);
-            if ($found !== null) {
-                return [$found[0], $resolved['params'] + $found[1]];
+            array_unshift($groups, [$resolved['name'], $resolved['params']]);
+        }
+
+        foreach ($groups as [$group, $hostParams]) {
+            if (isset($this->staticRoutes[$group][$method][$path])) {
+                return [$this->staticRoutes[$group][$method][$path], $hostParams];
             }
         }
 
-        $found = $this->matchGroup('', $method, $path, $allowed);
-        if ($found !== null) {
-            return $found;
+        $allowed = [];
+        $getFallback = null;
+
+        foreach ($groups as [$group, $hostParams]) {
+            foreach ($this->dynamicRoutes[$group] ?? [] as $route) {
+                $params = $route->match($path);
+                if ($params === null) {
+                    continue;
+                }
+
+                $routeMethod = $route->getMethod();
+                if ($routeMethod === $method) {
+                    return [$route, $hostParams + $params];
+                }
+
+                if ($routeMethod === 'GET' && $getFallback === null) {
+                    $getFallback = [$route, $hostParams + $params];
+                }
+
+                $allowed[$routeMethod] = true;
+            }
+        }
+
+        if ($method === 'HEAD') {
+            foreach ($groups as [$group, $hostParams]) {
+                if (isset($this->staticRoutes[$group]['GET'][$path])) {
+                    return [$this->staticRoutes[$group]['GET'][$path], $hostParams];
+                }
+            }
+            if ($getFallback !== null) {
+                return $getFallback;
+            }
+        }
+
+        foreach ($groups as [$group]) {
+            foreach ($this->staticRoutes[$group] ?? [] as $routeMethod => $paths) {
+                if (isset($paths[$path])) {
+                    $allowed[$routeMethod] = true;
+                }
+            }
         }
 
         if ($allowed !== []) {
@@ -466,60 +508,6 @@ class Router
         }
 
         throw new RouteNotFoundException("No route found for path: {$path}", 404);
-    }
-
-    /**
-     * @brief Matches the routes of one domain group.
-     *
-     * @param string $domain Domain name, or '' for unbound routes.
-     * @param string $method Request method.
-     * @param string $path Normalized request path.
-     * @param array<string, true> $allowed Methods of routes matching the path (extended for the 405 response).
-     * @return array{0: Route, 1: array<string, string>}|null Matched route and its path placeholder values.
-     */
-    protected function matchGroup(string $domain, string $method, string $path, array &$allowed): ?array
-    {
-        $static = $this->staticRoutes[$domain] ?? [];
-        if (isset($static[$method][$path])) {
-            return [$static[$method][$path], []];
-        }
-
-        $getFallback = null;
-
-        foreach ($this->dynamicRoutes[$domain] ?? [] as $route) {
-            $params = $route->match($path);
-            if ($params === null) {
-                continue;
-            }
-
-            $routeMethod = $route->getMethod();
-            if ($routeMethod === $method) {
-                return [$route, $params];
-            }
-
-            if ($routeMethod === 'GET' && $getFallback === null) {
-                $getFallback = [$route, $params];
-            }
-
-            $allowed[$routeMethod] = true;
-        }
-
-        if ($method === 'HEAD') {
-            if (isset($static['GET'][$path])) {
-                return [$static['GET'][$path], []];
-            }
-            if ($getFallback !== null) {
-                return $getFallback;
-            }
-        }
-
-        foreach ($static as $routeMethod => $paths) {
-            if (isset($paths[$path])) {
-                $allowed[$routeMethod] = true;
-            }
-        }
-
-        return null;
     }
 
     /**

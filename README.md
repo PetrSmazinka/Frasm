@@ -207,7 +207,9 @@ class ShopController extends BaseController
 }
 ```
 
-Routes of the requested domain win; routes without `#[Domain]` answer on every listed host. Once
+Routes without `#[Domain]` (such as `/login`) answer on every listed host; routes of the requested domain win
+over them, while fixed paths still win over paths with placeholders – a domain's `/{slug}` does not hide
+`/login`. Once
 `app.domains` is set, any other host – a bare IP address, a forged `Host` header – gets 404, so list every
 host that must keep working (for example the server's LAN address under `main`). In development map the
 names to `localhost`, `smarthome.localhost` and `{tenant}.localhost` in `config/local.php`: browsers resolve
