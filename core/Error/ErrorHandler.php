@@ -63,6 +63,11 @@ class ErrorHandler
     protected ?string $reservedMemory = null;
 
     /**
+     * @var Throwable|null Last exception turned into a response (tests show it when a request fails).
+     */
+    protected ?Throwable $lastException = null;
+
+    /**
      * @brief ErrorHandler constructor.
      *
      * @param LoggerInterface $logger Logger receiving reported errors.
@@ -180,6 +185,7 @@ class ErrorHandler
             return $e->getResponse();
         }
 
+        $this->lastException = $e;
         $this->report($e, $request);
 
         try {
@@ -188,6 +194,19 @@ class ErrorHandler
             $this->report($renderError, $request);
             return Response::html($this->minimalPage(500), 500);
         }
+    }
+
+    /**
+     * @brief Returns the last exception turned into a response and forgets it.
+     *
+     * @return Throwable|null
+     */
+    public function takeLastException(): ?Throwable
+    {
+        $e = $this->lastException;
+        $this->lastException = null;
+
+        return $e;
     }
 
     /**

@@ -431,6 +431,50 @@ Queue::push(new GenerateReportJob($reportId));
 Process jobs with `make worker` while developing; in production run the worker from systemd or cron
 (see [Automation](#automation)).
 
+### Tests
+
+Tests live in `app/Tests` – classes extending `Core\Testing\TestCase` in files named `…Test.php`, the namespace
+following the directories (`app/Tests/Blog/MarkdownTest.php` → `App\Tests\Blog\MarkdownTest`). Every public
+method starting with `test` is a test:
+
+```php
+final class ArticleTest extends TestCase
+{
+    public function testEditorCanPublish(): void
+    {
+        $editor = $this->createUser(['editor']);
+        $client = $this->http('example.com')->actingAs($editor);
+
+        $client->post('/articles', ['title' => 'Hello'])->assertRedirect('/articles');
+        $client->get('/articles')->assertOk()->assertSee('Hello');
+        $this->assertSame(1, (int)$this->db('blog')->selectValue('SELECT COUNT(*) FROM `articles`'));
+    }
+}
+```
+
+`$this->http()` sends requests to the application in-process (no web server): the session lives on between
+requests, form posts carry the CSRF token and validation errors redirect back like in a browser. Failing requests
+show the exception behind them. Assertions: `assertSame`, `assertEquals`, `assertTrue`, `assertCount`,
+`assertStringContains`, `assertThrows`, … and on responses `assertOk`, `assertStatus`, `assertRedirect`,
+`assertSee`, `assertHeader`.
+
+Tests never touch real data. Give every database connection a test database in `config/local.php`:
+
+```php
+'testing' => ['database' => ['connections' => [
+    'mysql' => ['database' => 'test_app', 'username' => 'test_app', 'password' => '…'],
+]]],
+```
+
+Connections without one are disabled during the tests, and the runner refuses a test database that equals the real
+one. The test databases are migrated before every run; `$this->truncate('blog')` empties a connection.
+
+```bash
+make test                      # all tests
+make test ARGS=blog            # tests whose "Blog\ClassTest::testMethod" contains "blog"
+make test ARGS="--fresh --stop"  # wipe and migrate the test databases first, stop at the first failure
+```
+
 ### Several databases
 
 Give each part of the application its own database and database user – a flaw in one part then cannot
@@ -479,6 +523,7 @@ make db:reset ARGS=--help                        # help for one command
 | `key:generate`, `token:create` | Application key, API tokens |
 | `user:create`, `user:password`, `user:roles` | User accounts: create, set the password (asked without echo, or `--generate`), change roles |
 | `logs:archive`, `prune` | Maintenance |
+| `test` | Application tests in `app/Tests` against the test databases |
 
 Your own commands go to `app/Commands/*Command.php` and are picked up automatically.
 

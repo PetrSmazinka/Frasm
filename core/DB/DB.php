@@ -169,13 +169,17 @@ class DB
      *
      * @param string $name Connection name.
      * @return array{host: string, user: string, password: string, database: string, port: int, charset: string, sync_timezone: bool}
-     * @throws DatabaseException If the name is invalid or the connection is not configured.
+     * @throws DatabaseException If the name is invalid, the connection is not configured or it is disabled.
      */
     public static function settings(string $name): array
     {
         $settings = preg_match(self::NAME, $name) ? Config::get("database.connections.{$name}") : null;
         if (!is_array($settings)) {
             throw new DatabaseException("Unknown database connection '{$name}' (define it in database.connections).");
+        }
+        // Tests disable connections without a test database, so they can never reach real data
+        if (!empty($settings['disabled'])) {
+            throw new DatabaseException("Database connection '{$name}' is disabled" . (is_string($settings['disabled']) ? ": {$settings['disabled']}" : '.'));
         }
 
         return [

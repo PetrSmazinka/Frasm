@@ -55,6 +55,7 @@ final class Application
         Commands\UserRolesCommand::class,
         Commands\LogsArchiveCommand::class,
         Commands\PruneCommand::class,
+        Commands\TestCommand::class,
     ];
 
     /**

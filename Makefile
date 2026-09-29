@@ -21,7 +21,7 @@ ARGS  ?=
 MAKEFLAGS += --no-builtin-rules --no-print-directory
 .SUFFIXES:
 .DEFAULT_GOAL := help
-.PHONY: help serve fresh migrate seed routes cache worker update
+.PHONY: help serve fresh migrate seed routes cache worker test update
 
 help: ## Show this help and all Frasm commands
 	@awk 'BEGIN {FS = ":.*## "} \
@@ -56,6 +56,9 @@ cache: ## Rebuild the route cache (after every deploy)
 
 worker: ## Process queued jobs until the queue is empty
 	@$(FRASM) queue:work --once $(ARGS)
+
+test: ## Run the tests in app/Tests (ARGS="blog --stop", ARGS=--fresh)
+	@$(FRASM) test $(ARGS)
 
 update: ## Update the framework (REF=<tag|branch>, MIGRATE=1 also migrates)
 	@./install.sh --update --ref $(REF) $(if $(MIGRATE),--migrate,) .

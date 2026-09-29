@@ -24,6 +24,11 @@ return [
         ],
     ],
 
+    // Test databases of `make test` (connections without one are disabled during the tests), e.g.:
+    // 'testing' => ['database' => ['connections' => [
+    //     'mysql' => ['database' => 'test_app', 'username' => 'test_app', 'password' => '…'],
+    // ]]],
+
     // Scheduler for #[Schedule] tasks: the installer adds/removes the cron entry accordingly
     'scheduler' => [
         'enabled' => __SCHEDULER_ENABLED__,

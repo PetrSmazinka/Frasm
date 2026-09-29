@@ -566,7 +566,7 @@ function main(array $argv): void
     $adminPassword = null;
     if (!$update) {
         if (isset($options['no-example'])) {
-            foreach (['app/Controllers', 'app/Models', 'app/Views', 'app/Components', 'app/Assets/css', 'app/Assets/js'] as $directory) {
+            foreach (['app/Controllers', 'app/Models', 'app/Views', 'app/Components', 'app/Assets/css', 'app/Assets/js', 'app/Tests'] as $directory) {
                 mkdir("{$target}/{$directory}", 0755, true);
             }
         } else {

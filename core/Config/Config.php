@@ -133,6 +133,19 @@ class Config
     }
 
     /**
+     * @brief Merges values over the loaded configuration recursively (like config/local.php does).
+     *
+     * Used to switch to another environment at runtime, e.g. the test databases of `testing`.
+     *
+     * @param array<string, mixed> $overrides Nested configuration values.
+     * @return void
+     */
+    public static function merge(array $overrides): void
+    {
+        self::$items = array_replace_recursive(self::$items, $overrides);
+    }
+
+    /**
      * @brief Checks if a specific configuration key exists.
      *
      * @param string $key Dot-delimited key identifier.
