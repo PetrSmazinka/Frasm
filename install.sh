@@ -11,6 +11,10 @@
 #   Update an existing project (from inside it):
 #     ./install.sh --update .            # or: make update
 #
+#   PHP only in a Docker container (the project directory is mounted into it):
+#     bash install.sh --docker apache_php --docker-workdir /var/www/myapp ~/www/myapp
+#     (then `make` runs every command in the container, see frasm.mk; `make update` keeps the settings)
+#
 #   Restore a project cloned from its own repository (the framework is git-ignored):
 #     git clone <your-project-repo> /var/www/myapp && cd /var/www/myapp
 #     cp /path/to/backup/local.php config/local.php
@@ -28,6 +32,9 @@
 #   --scheduler          Enable #[Schedule] tasks (adds the cron entry)
 #   --web-user <user>    Web server user owning storage/ (default: www-data)
 #   --source <dir>       Use a local framework checkout instead of downloading (development)
+#   --docker <container> Run PHP in this running container; downloading stays on the host
+#   --docker-workdir <dir>  The target directory as mounted inside the container (required with --docker)
+#   --docker-user <uid:gid> User running PHP in the container (default: yours, with the target's group)
 #
 # Private repository access:
 #   FRASM_REPO=git@github.com:PetrSmazinka/Frasm.git  → git clone over SSH (deploy key)
@@ -40,6 +47,9 @@ REF=""
 RESTORE=""
 TARGET=""
 SOURCE=""
+DOCKER=""
+DOCKER_WORKDIR=""
+DOCKER_USER=""
 PASS_ARGS=()
 
 usage() {
@@ -57,10 +67,22 @@ step() {
     echo "› $*"
 }
 
+# PHP CLI on the host, or in the container given by --docker (working directory: the target there)
+php_cli() {
+    if [[ -n "$DOCKER" ]]; then
+        docker exec -u "$DOCKER_USER" -w "$DOCKER_WORKDIR" "$DOCKER" php "$@"
+    else
+        php "$@"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ref)        REF="${2:?--ref requires a value}"; shift 2 ;;
         --source)     SOURCE="${2:?--source requires a value}"; shift 2 ;;
+        --docker)     DOCKER="${2:?--docker requires a value}"; shift 2 ;;
+        --docker-workdir) DOCKER_WORKDIR="${2:?--docker-workdir requires a value}"; shift 2 ;;
+        --docker-user)    DOCKER_USER="${2:?--docker-user requires a value}"; shift 2 ;;
         --web-user)   PASS_ARGS+=("--web-user=${2:?--web-user requires a value}"); shift 2 ;;
         --update)     PASS_ARGS+=("--update"); shift ;;
         --restore)    PASS_ARGS+=("--restore"); RESTORE=1; shift ;;
@@ -84,17 +106,44 @@ fi
 REF="${REF:-master}"
 [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "Invalid --ref '$REF'."
 
-command -v php >/dev/null 2>&1 || die "PHP CLI is not installed."
-php -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' || die "PHP 8.3 or newer is required (found $(php -r 'echo PHP_VERSION;'))."
+if [[ -n "$DOCKER" ]]; then
+    [[ "$DOCKER" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "Invalid --docker '$DOCKER'."
+    [[ "$DOCKER_WORKDIR" == /* ]] || die "--docker requires --docker-workdir with an absolute path inside the container."
+    command -v docker >/dev/null 2>&1 || die "Docker is not installed."
+    # The container sees the target through a mount, so the target must exist on the host first
+    mkdir -p "$TARGET" || die "Cannot create '$TARGET'."
+    DOCKER_USER="${DOCKER_USER:-$(id -u):$(ls -ldn "$TARGET" | awk '{print $4}')}"
+    [[ "$DOCKER_USER" =~ ^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)?$ ]] || die "Invalid --docker-user '$DOCKER_USER'."
+else
+    [[ -z "$DOCKER_WORKDIR$DOCKER_USER" ]] || die "--docker-workdir and --docker-user require --docker."
+    command -v php >/dev/null 2>&1 || die "PHP CLI is not installed (PHP only in a container? use --docker, see --help)."
+fi
 
-WORK="$(mktemp -d)"
+if [[ -n "$DOCKER" ]]; then
+    # Inside the target, so the container sees the framework source; the name matches the *.frasm-new ignore rule
+    WORK="$TARGET/.update-$$.frasm-new"
+    mkdir -m 755 "$WORK" || die "Cannot create '$WORK'."
+else
+    WORK="$(mktemp -d)"
+fi
 trap 'rm -rf "$WORK"' EXIT
 COMMIT=""
+
+if [[ -n "$DOCKER" ]] && ! php_cli -r 'exit(is_dir($argv[1]) ? 0 : 1);' "$(basename "$WORK")" 2>/dev/null; then
+    die "'$TARGET' is not mounted at $DOCKER_WORKDIR in the running container '$DOCKER' (check --docker and --docker-workdir)."
+fi
+php_cli -r 'exit(PHP_VERSION_ID >= 80300 ? 0 : 1);' || die "PHP 8.3 or newer is required (found $(php_cli -r 'echo PHP_VERSION;'))."
 
 if [[ -n "$SOURCE" ]]; then
     [[ -f "$SOURCE/bin/install.php" ]] || die "'$SOURCE' is not a Frasm checkout."
     SRC="$(cd "$SOURCE" && pwd)"
     COMMIT="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -n "$DOCKER" ]]; then
+        # A checkout outside the target is not visible in the container
+        mkdir "$WORK/frasm"
+        tar -C "$SRC" --exclude=./.git -cf - . | tar -C "$WORK/frasm" -xf -
+        SRC="$WORK/frasm"
+    fi
 elif [[ -z "${GITHUB_TOKEN:-}" ]] && command -v git >/dev/null 2>&1; then
         step "Fetching Frasm ($REF) from $REPO"
     git clone --quiet --depth 1 --branch "$REF" "$REPO" "$WORK/frasm" || die "git clone failed (private repository? set FRASM_REPO to an SSH URL or GITHUB_TOKEN)."
@@ -125,4 +174,22 @@ else
     COMMIT="$(tar -tzf "$WORK/frasm.tar.gz" | head -1 | sed -E 's#.*-([0-9a-f]{7,})/?$#\1#')"
 fi
 
-php "$SRC/bin/install.php" --target="$TARGET" --ref="$REF" --commit="$COMMIT" "${PASS_ARGS[@]}"
+if [[ -z "$DOCKER" ]]; then
+    php "$SRC/bin/install.php" --target="$TARGET" --ref="$REF" --commit="$COMMIT" "${PASS_ARGS[@]}"
+    exit 0
+fi
+
+php_cli "$(basename "$WORK")/frasm/bin/install.php" --target=. --host-target="$(cd "$TARGET" && pwd)" \
+    --ref="$REF" --commit="$COMMIT" "${PASS_ARGS[@]}"
+
+# Docker: make (frasm.mk) runs the CLI in the same container from now on; a project's own frasm.mk is kept
+if [[ ! -f "$TARGET/frasm.mk" ]]; then
+    cat > "$TARGET/frasm.mk" <<MK
+# Docker settings of this project (written by install.sh --docker; not versioned).
+# make runs \`php\` in this container; make update passes the settings on to install.sh.
+DOCKER_CONTAINER = $DOCKER
+DOCKER_WORKDIR   = $DOCKER_WORKDIR
+DOCKER_USER      = $DOCKER_USER
+MK
+    step "Docker settings written to frasm.mk (make runs PHP in the container '$DOCKER')"
+fi

@@ -14,6 +14,8 @@ declare(strict_types=1);
  *   php bin/install.php --target=/var/www/app --restore [--migrate] [--web-user=www-data]
  *   (--web-user names the web server group that gets access to storage/ and config/local.php)
  *   Optional: --ref=<branch|tag> --commit=<sha> (recorded in .frasm-version)
+ *   Docker (set by install.sh --docker): --host-target=<dir> is the target as seen on the host, where
+ *   the printed next steps are run with make (frasm.mk forwards them into the container)
  *
  * --restore reinstalls the framework into a project cloned from its own repository, which holds only
  * the application (the framework files are git-ignored, see gitignoreBlock()).
@@ -290,8 +292,9 @@ function gitignoreBlock(): string
         '# Generated from config/pwa.php by `php bin/frasm pwa:build`',
         '/public/manifest.webmanifest',
         '/public/pwa/',
-        '# Secrets and runtime data (back up config/local.php separately: it holds the application key)',
+        '# Secrets, machine settings and runtime data (back up config/local.php separately: it holds the application key)',
         '/config/local.php',
+        '/frasm.mk',
         '/storage/*',
         '!/storage/.gitkeep',
         '# Leftovers of an interrupted install',
@@ -492,6 +495,12 @@ function main(array $argv): void
     }
     $target = (string)realpath($target);
 
+    $hostTarget = $options['host-target'] ?? null;
+    if ($hostTarget !== null && (!is_string($hostTarget) || !str_starts_with($hostTarget, '/'))) {
+        fail('--host-target must be an absolute path.');
+    }
+    $hostTarget = $hostTarget === null ? null : rtrim($hostTarget, '/');
+
     if ($target === realpath($source)) {
         fail('The target must differ from the framework source directory.');
     }
@@ -625,13 +634,17 @@ function main(array $argv): void
     $frasm = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("{$target}/bin/frasm");
     $steps = [];
 
-    // Suggest the Makefile shortcuts only when make is installed
-    $hasMake = trim((string)shell_exec('command -v make 2>/dev/null')) !== '';
+    // Next steps run on the host (Docker: through make and frasm.mk); the web server sees $target
+    $hostDir = $hostTarget ?? $target;
+
+    // Suggest the Makefile shortcuts only when make is installed; in Docker only make reaches PHP from the host
+    $hasMake = $hostTarget !== null || trim((string)shell_exec('command -v make 2>/dev/null')) !== '';
     $task = static fn(string $shortcut, string $command): string => $hasMake ? "make {$shortcut}" : "php bin/frasm {$command}";
 
     if ($permissionStep !== null) {
         console()->warning("The web server group '{$webUser}' cannot read config/local.php or write storage/ yet");
-        $steps[] = $permissionStep;
+        // Its commands run on the host
+        $steps[] = [$permissionStep[0], array_map(static fn(string $command): string => strtr($command, [$target => $hostDir]), $permissionStep[1])];
     }
 
     // 5. Installable web app: generate the manifest and icons when pwa.enabled (needs GD for the icons).
@@ -639,7 +652,7 @@ function main(array $argv): void
     passthru("{$frasm} pwa:build --if-enabled", $pwaStatus);
     if ($pwaStatus !== 0) {
         $steps[] = ['Generate the web app manifest and icons (needs the PHP GD extension):', [
-            "cd {$target} && " . $task('pwa:build', 'pwa:build'),
+            "cd {$hostDir} && " . $task('pwa:build', 'pwa:build'),
         ]];
     }
 
@@ -648,7 +661,7 @@ function main(array $argv): void
     $cronUser = posix_geteuid() === 0 ? ' --user=' . escapeshellarg($webUser) : '';
     passthru("{$frasm} schedule:cron{$cronUser}", $cronStatus);
     if ($cronStatus !== 0) {
-        $steps[] = ['Install the scheduler cron entry:', ["cd {$target} && php bin/frasm schedule:cron"]];
+        $steps[] = ['Install the scheduler cron entry:', ["cd {$hostDir} && " . $task('schedule:cron', 'schedule:cron')]];
     }
 
     // 7. Post-update tasks
@@ -656,10 +669,10 @@ function main(array $argv): void
         passthru("{$frasm} route:clear");
         if ($restore && $adminPassword !== null) {
             // A fresh local.php has no database credentials yet, nor the PWA and scheduler settings
-            $steps[] = ["Restore your backed-up {$target}/config/local.php (or enter the database credentials), then:", [
-                "cd {$target}",
+            $steps[] = ["Restore your backed-up {$hostDir}/config/local.php (or enter the database credentials), then:", [
+                "cd {$hostDir}",
                 $task('migrate', 'db:migrate'),
-                'php bin/frasm pwa:build --if-enabled && php bin/frasm schedule:cron',
+                $task('pwa:build ARGS=--if-enabled', 'pwa:build --if-enabled') . ' && ' . $task('schedule:cron', 'schedule:cron'),
             ]];
         } elseif (isset($options['migrate'])) {
             passthru("{$frasm} db:migrate", $status);
@@ -667,11 +680,15 @@ function main(array $argv): void
                 fail('Database migration failed.');
             }
         } else {
-            $steps[] = ['Apply database changes:', ["cd {$target} && " . $task('migrate', 'db:migrate')]];
+            $steps[] = ['Apply database changes:', ["cd {$hostDir} && " . $task('migrate', 'db:migrate')]];
         }
-        $steps[] = ['Reload PHP (OPcache) and restart the queue worker if it runs as a service:', [
-            'sudo systemctl reload apache2 && sudo systemctl restart frasm-queue',
-        ]];
+        $steps[] = $hostTarget === null
+            ? ['Reload PHP (OPcache) and restart the queue worker if it runs as a service:', [
+                'sudo systemctl reload apache2 && sudo systemctl restart frasm-queue',
+            ]]
+            : ['Restart the PHP containers that keep code in memory (OPcache without revalidation, a queue worker):', [
+                'docker compose restart <service>',
+            ]];
 
         console()->line();
         console()->success($restore ? 'Frasm restored' : 'Frasm updated');
@@ -679,14 +696,17 @@ function main(array $argv): void
         return;
     }
 
-    $steps[] = ["Set the database credentials in {$target}/config/local.php, then:", [
-        "cd {$target}",
+    $steps[] = ["Set the database credentials in {$hostDir}/config/local.php, then:", [
+        "cd {$hostDir}",
         $task('migrate', 'db:migrate'),
         $task('seed', 'db:seed'),
     ]];
-    $steps[] = ["Point the web server's DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite),", [
-        'or preview locally: ' . $task('serve', 'serve'),
-    ]];
+    // In Docker the development server would listen inside the container, unreachable from the host
+    $steps[] = $hostTarget === null
+        ? ["Point the web server's DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite),", [
+            'or preview locally: ' . $task('serve', 'serve'),
+        ]]
+        : ["Point the web server's DocumentRoot to {$target}/public (Apache: AllowOverride All, mod_rewrite).", []];
 
     console()->line();
     console()->success('Frasm installed');

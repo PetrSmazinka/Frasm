@@ -58,6 +58,23 @@ Installer options:
 | `--pwa` | Make the site installable as an app (manifest, icons, service worker) |
 | `--scheduler` | Enable `#[Schedule]` tasks (the cron entry is managed for you) |
 | `--web-user <group>` | Group of the web server that needs access to `storage/` (default `www-data`) |
+| `--docker <container>` | PHP runs only in this container (see [Docker](#docker)) |
+| `--docker-workdir <dir>` | The project directory as mounted in the container (required with `--docker`) |
+| `--docker-user <uid:gid>` | User running PHP in the container (default: you, with the project directory's group) |
+
+### Docker
+
+When PHP runs only in a container, the host has no `php`. The installer then downloads the framework on the
+host (with your git credentials) and runs PHP in the container, which must have the project directory mounted:
+
+```bash
+bash install.sh --docker apache_php --docker-workdir /var/www/myapp ~/www/myapp
+```
+
+It writes `frasm.mk` (not versioned) with these settings, and every `make` command then runs through
+`docker exec` in that container: `make migrate`, `make update`, `make db:rollback`, … An existing project
+gets `frasm.mk` the same way from its first `./install.sh --update --docker … .` For scheduled tasks in
+Docker see [Scheduled tasks](#docker-1).
 
 ### Apache
 
@@ -99,8 +116,9 @@ make update REF=v0.2.0 MIGRATE=1   # a specific version, and apply database chan
 ```
 
 An update replaces only the framework (`core/`, `bin/`, `public/index.php`, `public/js/frasm-*.js`, …).
-Your `app/`, `database/`, `storage/` and `config/local.php` are never touched. Missing configuration
-files are added; changed defaults of existing ones are only reported.
+Your `app/`, `database/`, `storage/`, `config/local.php` and `frasm.mk` are never touched. Missing configuration
+files are added; changed defaults of existing ones are only reported. With `frasm.mk` (Docker), `make update`
+passes its settings to the installer.
 
 ## Version control and restoring a project
 
