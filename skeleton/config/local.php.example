@@ -32,6 +32,7 @@ return [
     // Scheduler for #[Schedule] tasks: the installer adds/removes the cron entry accordingly
     'scheduler' => [
         'enabled' => __SCHEDULER_ENABLED__,
+        // 'runner' => 'daemon',   // Docker: no cron entry, run `php bin/frasm schedule:work` as a service
     ],
 
     // Installable web app: set a name and an icon, then run `php bin/frasm pwa:build`

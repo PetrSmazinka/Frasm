@@ -420,6 +420,37 @@ The installer then adds the cron entry for you on every install and `make update
 the scheduler is disabled); to apply a change right away, run `make schedule:cron`. `make schedule:list`
 shows every task with its last run, status and trigger.
 
+#### Docker
+
+In a container, PHP and cron do not share a system: the PHP container has no cron, the host has no PHP.
+Let a long-running process start the runs instead of cron:
+
+```php
+'scheduler' => ['enabled' => true, 'runner' => 'daemon'],
+```
+
+With `runner` set to `daemon`, `schedule:cron` manages no cron entry (and removes an old one), so installs and
+updates inside the container succeed without `crontab`. Run `php bin/frasm schedule:work` as its own service
+from the web server's image:
+
+```yaml
+  scheduler:
+    image: <web server image>        # same PHP, extensions and network as the web server
+    init: true                       # PHP must not be PID 1: it would ignore SIGTERM
+    stop_signal: SIGTERM             # php:*-apache images default to SIGWINCH
+    user: www-data
+    working_dir: /var/www/myapp
+    command: php bin/frasm schedule:work
+    volumes:
+      - ./www:/var/www
+    restart: unless-stopped
+```
+
+`schedule:work` starts `schedule:run` at the beginning of every minute as a separate process, exactly like
+cron: new code is used right after a deployment without restarting the service, and a slow task does not
+delay the others. Its errors appear in `docker logs`. The same command works as a systemd service, and in
+development it runs scheduled tasks without touching your crontab.
+
 ### Job queue
 
 ```php
@@ -517,7 +548,7 @@ make db:reset ARGS=--help                        # help for one command
 | `migrate`, `seed`, `fresh`, `db:rollback`, `db:reset` | Database schema and administrator account |
 | `routes`, `cache`, `route:clear` | Route table and route cache |
 | `worker`, `queue:stats`, `queue:failed`, `queue:retry` | Job queue |
-| `schedule:list`, `schedule:run`, `schedule:cron` | Scheduled tasks (`#[Schedule]`) and their cron entry |
+| `schedule:list`, `schedule:run`, `schedule:cron`, `schedule:work` | Scheduled tasks (`#[Schedule]`), their cron entry, or the daemon replacing it |
 | `push:vapid`, `push:send` | Web Push |
 | `pwa:build` | Web app manifests and icons (main app and `pwa.apps`) |
 | `key:generate`, `token:create` | Application key, API tokens |

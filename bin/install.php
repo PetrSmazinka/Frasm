@@ -643,8 +643,8 @@ function main(array $argv): void
         ]];
     }
 
-    // 6. Scheduler: add or remove the cron entry according to scheduler.enabled
-    //    (root installs manage the web server user's crontab, others their own)
+    // 6. Scheduler: add or remove the cron entry according to scheduler.enabled and scheduler.runner
+    //    (root installs manage the web server user's crontab, others their own; runner 'daemon' needs no crontab)
     $cronUser = posix_geteuid() === 0 ? ' --user=' . escapeshellarg($webUser) : '';
     passthru("{$frasm} schedule:cron{$cronUser}", $cronStatus);
     if ($cronStatus !== 0) {

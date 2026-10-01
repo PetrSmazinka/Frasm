@@ -11,7 +11,7 @@ use Core\Scheduling\Scheduler;
 
 /**
  * @file ScheduleRunCommand.php
- * @brief Runs due scheduled tasks (call from cron every minute).
+ * @brief Runs due scheduled tasks (called every minute by cron or by schedule:work).
  */
 final class ScheduleRunCommand extends Command
 {
@@ -53,7 +53,8 @@ final class ScheduleRunCommand extends Command
      */
     public function help(): string
     {
-        return "Called every minute by the cron entry that `php bin/frasm schedule:cron` manages.\n"
+        return "Called every minute by the cron entry that `php bin/frasm schedule:cron` manages,\n"
+            . "or by `php bin/frasm schedule:work` (scheduler.runner = daemon).\n"
             . "--task runs one task immediately, even while the scheduler is disabled.";
     }
 

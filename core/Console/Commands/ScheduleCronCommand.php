@@ -13,7 +13,7 @@ use Core\Scheduling\Scheduler;
 
 /**
  * @file ScheduleCronCommand.php
- * @brief Adds or removes the scheduler's cron entry according to `scheduler.enabled`.
+ * @brief Adds or removes the scheduler's cron entry according to `scheduler.enabled` and `scheduler.runner`.
  */
 
 /**
@@ -22,6 +22,8 @@ use Core\Scheduling\Scheduler;
  *
  * The entry lives in the crontab of the current user, or of --user (root only). It is a marked
  * block identified by the project path, so other crontab lines and other projects are untouched.
+ * With `scheduler.runner = daemon` the runs are started by `schedule:work` instead, so the entry is
+ * removed; where no crontab exists (e.g. inside a container) there is then nothing to do.
  */
 final class ScheduleCronCommand extends Command
 {
@@ -34,7 +36,7 @@ final class ScheduleCronCommand extends Command
     /** @brief Command description. @return string */
     public function description(): string
     {
-        return 'Install or remove the scheduler cron entry according to scheduler.enabled';
+        return 'Install or remove the scheduler cron entry according to scheduler.enabled and scheduler.runner';
     }
 
     /**
@@ -59,19 +61,27 @@ final class ScheduleCronCommand extends Command
      */
     public function handle(Input $input, Output $output): int
     {
-        if (!CronTab::isAvailable()) {
-            $output->error('The crontab command is not installed (Debian: sudo apt install cron).');
-            return 1;
-        }
-
         $user = $input->option('user');
         if ($user !== null && !preg_match('/^[a-z_][a-z0-9_-]*$/D', $user)) {
             $output->error("Invalid user '{$user}'.");
             return 1;
         }
 
+        $daemon = Scheduler::runner() === Scheduler::RUNNER_DAEMON;
+        $enabled = Scheduler::isEnabled() && !$daemon && !$input->flag('remove');
+
+        if (!CronTab::isAvailable()) {
+            if ($enabled) {
+                $output->error('The crontab command is not installed (Debian: sudo apt install cron;'
+                    . ' in a container set scheduler.runner = daemon and run schedule:work).');
+                return 1;
+            }
+            // Without crontab there can be no entry to remove
+            $output->success($this->noEntryMessage($daemon));
+            return 0;
+        }
+
         $crontab = new CronTab($user);
-        $enabled = Scheduler::isEnabled() && !$input->flag('remove');
         $body = $enabled ? $this->entry() : null;
 
         $result = $crontab->syncBlock(FRASM_ROOT_DIR, $body);
@@ -83,10 +93,27 @@ final class ScheduleCronCommand extends Command
             'removed'   => $output->success("Scheduler cron entry removed (crontab of {$owner})"),
             default     => $output->success($enabled
                 ? "Scheduler cron entry is up to date (crontab of {$owner})"
-                : 'Scheduler is disabled, no cron entry'),
+                : $this->noEntryMessage($daemon)),
         };
 
         return 0;
+    }
+
+    /**
+     * @brief Explains why no cron entry is installed.
+     *
+     * @param bool $daemon Whether `scheduler.runner` is 'daemon'.
+     * @return string
+     */
+    private function noEntryMessage(bool $daemon): string
+    {
+        if (!Scheduler::isEnabled()) {
+            return 'Scheduler is disabled, no cron entry';
+        }
+
+        return $daemon
+            ? 'Scheduler runs as a daemon (scheduler.runner = daemon), no cron entry: keep `php bin/frasm schedule:work` running'
+            : 'Scheduler cron entry is not installed (--remove)';
     }
 
     /**

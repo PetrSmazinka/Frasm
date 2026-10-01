@@ -6,6 +6,7 @@ namespace Core\Scheduling;
 
 use Core\Config\Config;
 use Core\Container\Container;
+use Core\Exceptions\CoreException;
 use Core\Exceptions\HttpResponseException;
 use Core\Http\Request;
 use Core\Logger\LoggerInterface;
@@ -23,7 +24,8 @@ use Throwable;
 /**
  * @class Scheduler
  * @brief Executes scheduled methods of application controllers (app/Controllers) and task classes
- *        (app/Tasks), driven by `php bin/frasm schedule:run` from cron every minute.
+ *        (app/Tasks), driven by `php bin/frasm schedule:run` every minute (from cron, or from the
+ *        `schedule:work` daemon, see `scheduler.runner`).
  *
  * Scheduled methods are invoked through the container like controller actions. The bound Request
  * carries the attribute 'frasm.scheduled' (see Request::isScheduled()), so an action can respond
@@ -31,6 +33,16 @@ use Throwable;
  */
 class Scheduler
 {
+    /**
+     * @var string `scheduler.runner`: a crontab entry managed by `schedule:cron` starts the runs.
+     */
+    public const RUNNER_CRON = 'cron';
+
+    /**
+     * @var string `scheduler.runner`: a supervised `schedule:work` process starts the runs (Docker, systemd).
+     */
+    public const RUNNER_DAEMON = 'daemon';
+
     /**
      * @var int Tolerance subtracted from intervals, so a 15-minute task started a second late by
      *          cron still runs in the 15th minute instead of the 16th.
@@ -66,6 +78,23 @@ class Scheduler
     public static function isEnabled(): bool
     {
         return (bool)Config::get('scheduler.enabled', false);
+    }
+
+    /**
+     * @brief Returns what starts the runs every minute (`scheduler.runner`).
+     *
+     * @return string RUNNER_CRON or RUNNER_DAEMON.
+     * @throws CoreException When the configured value is not supported.
+     */
+    public static function runner(): string
+    {
+        $runner = Config::get('scheduler.runner', self::RUNNER_CRON);
+
+        if (!in_array($runner, [self::RUNNER_CRON, self::RUNNER_DAEMON], true)) {
+            throw new CoreException("Invalid scheduler.runner (expected '" . self::RUNNER_CRON . "' or '" . self::RUNNER_DAEMON . "').");
+        }
+
+        return $runner;
     }
 
     /**

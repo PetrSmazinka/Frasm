@@ -41,6 +41,7 @@ final class Application
         Commands\ScheduleRunCommand::class,
         Commands\ScheduleListCommand::class,
         Commands\ScheduleCronCommand::class,
+        Commands\ScheduleWorkCommand::class,
         Commands\QueueWorkCommand::class,
         Commands\QueueStatsCommand::class,
         Commands\QueueFailedCommand::class,
