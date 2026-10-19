@@ -24,12 +24,19 @@ use Core\Security\Csrf;
  *
  * Skipped for safe methods, for requests authenticated statelessly with a Bearer token
  * (browsers cannot attach that header cross-site) and for paths listed in `middleware.csrf_except`
- * (a trailing `*` matches any suffix, e.g. '/api/*'). A POST carrying a valid signed push action
+ * (a trailing `*` matches any suffix, e.g. '/api/*') and in EXCEPT (server-to-server calls of the framework that
+ * change nothing by themselves). A POST carrying a valid signed push action
  * token (X-Frasm-Push-Action, bound to the request path) is accepted as well; the verified action
  * is exposed as request attribute 'push_action'. Must run after AuthenticateMiddleware.
  */
 class CsrfMiddleware implements MiddlewareInterface
 {
+    /**
+     * @var list<string> Paths of the framework without a token: an SSO server telling that an account changed (the
+     *                   client then only reads it from the server).
+     */
+    private const EXCEPT = ['/_frasm/sso/changed'];
+
     /**
      * @brief Validates the token and delegates to the next handler.
      *
@@ -65,7 +72,7 @@ class CsrfMiddleware implements MiddlewareInterface
      */
     protected function isExcepted(string $path): bool
     {
-        foreach ((array)Config::get('middleware.csrf_except', []) as $pattern) {
+        foreach ([...self::EXCEPT, ...(array)Config::get('middleware.csrf_except', [])] as $pattern) {
             if (self::pathMatches((string)$pattern, $path)) {
                 return true;
             }

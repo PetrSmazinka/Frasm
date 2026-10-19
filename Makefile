@@ -16,6 +16,8 @@
 # =============================================================================
 
 -include frasm.mk
+# Targets of software installed on top of Frasm or of the project itself (e.g. bandis.mk); updates keep them
+-include $(sort $(filter-out frasm.mk,$(wildcard *.mk)))
 
 PHP   ?= php
 ifdef DOCKER_CONTAINER

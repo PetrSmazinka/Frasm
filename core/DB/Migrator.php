@@ -36,6 +36,7 @@ class Migrator
         'core' => null,
         'auth' => 'auth.enabled',
         'push' => 'push.enabled',
+        'sso'  => 'sso.server.enabled',
     ];
 
     /**
@@ -69,11 +70,29 @@ class Migrator
         $this->connection = $connection ?? DB::defaultName();
         $this->db = DB::connection($this->connection);
 
-        $root = self::migrationsRoot();
-        if ($this->isDefault()) {
-            $this->addPath($root);
+        $roots = [self::migrationsRoot()];
+        $site = self::siteMigrationsRoot();
+        if ($site !== null) {
+            $roots[] = $site;
         }
-        $this->addPath($root . DIRECTORY_SEPARATOR . $this->connection);
+        foreach ($roots as $root) {
+            if ($this->isDefault()) {
+                $this->addPath($root);
+            }
+            $this->addPath($root . DIRECTORY_SEPARATOR . $this->connection);
+        }
+    }
+
+    /**
+     * @brief Returns the migrations directory of the site layer (site/database/migrations; see Core\Layers).
+     *
+     * @return string|null Null when there is no site layer.
+     */
+    public static function siteMigrationsRoot(): ?string
+    {
+        $site = \Core\Layers::siteDir();
+
+        return $site === null ? null : $site . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'migrations';
     }
 
     /**
@@ -97,12 +116,13 @@ class Migrator
      */
     public static function connections(): array
     {
-        $root = self::migrationsRoot();
+        $roots = array_filter([self::migrationsRoot(), self::siteMigrationsRoot()]);
         $default = DB::defaultName();
 
         return array_values(array_filter(
             DB::connectionNames(),
-            fn(string $name): bool => $name === $default || is_dir($root . DIRECTORY_SEPARATOR . $name)
+            fn(string $name): bool => $name === $default
+                || array_filter($roots, static fn(string $root): bool => is_dir($root . DIRECTORY_SEPARATOR . $name)) !== []
         ));
     }
 

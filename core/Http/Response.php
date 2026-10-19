@@ -301,6 +301,20 @@ class Response
     }
 
     /**
+     * @brief Adapts the response to the request it answers, right before it leaves the kernel.
+     *
+     * Called by Kernel::handle() for every response of the pipeline. The default changes nothing;
+     * FileResponse answers conditional and range requests here (304, 206, 416).
+     *
+     * @param Request $request Handled request.
+     * @return static
+     */
+    public function prepare(Request $request): static
+    {
+        return $this;
+    }
+
+    /**
      * @brief Emits status line, headers and body to the client.
      *
      * @param bool $withBody When false (HEAD requests), only the status and headers are sent.

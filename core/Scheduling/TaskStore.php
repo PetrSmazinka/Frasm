@@ -80,17 +80,31 @@ class TaskStore
     {
         DB::getInstance()->query(
             'UPDATE `' . self::TABLE . '`
-             SET `locked_until` = NULL, `last_finished_at` = NOW(), `last_status` = ?, `last_error` = ?, `last_duration_ms` = ?
+             SET `locked_until` = NULL, `last_finished_at` = NOW(), `last_status` = ?, `last_error` = ?, `last_duration_ms` = ?,
+                 `last_success_at` = IF(?, NOW(), `last_success_at`)
              WHERE `task` = ?',
-            [$success ? 'success' : 'failed', $error === null ? null : mb_substr($error, 0, 2000), max(0, $durationMs), $task]
+            [$success ? 'success' : 'failed', $error === null ? null : mb_substr($error, 0, 2000), max(0, $durationMs), $success ? 1 : 0, $task]
         );
+    }
+
+    /**
+     * @brief Records that an alert about the failures of a task went out, or clears it after a success.
+     *
+     * @param string $task Task key.
+     * @param bool $alerted Alert sent (true) or failures over (false).
+     * @return void
+     * @throws \Core\Exceptions\DatabaseException On query failure.
+     */
+    public function markAlerted(string $task, bool $alerted): void
+    {
+        DB::getInstance()->query('UPDATE `' . self::TABLE . '` SET `alerted_at` = ' . ($alerted ? 'NOW()' : 'NULL') . ' WHERE `task` = ?', [$task]);
     }
 
     /**
      * @brief Returns the state of one task.
      *
      * @param string $task Task key.
-     * @return array{task: string, locked_until: ?string, last_started_at: ?string, last_finished_at: ?string, last_status: ?string, last_error: ?string, last_duration_ms: ?int, last_trigger: ?string}|null
+     * @return array{task: string, locked_until: ?string, last_started_at: ?string, last_finished_at: ?string, last_status: ?string, last_error: ?string, last_duration_ms: ?int, last_trigger: ?string, last_success_at: ?string, alerted_at: ?string}|null
      * @throws \Core\Exceptions\DatabaseException On query failure.
      */
     public function state(string $task): ?array

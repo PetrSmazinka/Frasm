@@ -17,11 +17,14 @@ use Core\Http\Request;
 define('FRASM_ROOT_DIR', dirname(__DIR__));
 
 /*
- * Application assets (app/Assets, URL /assets/...) are served before the framework boots:
+ * Application assets (site/Assets over app/Assets, URL /assets/...) are served before the framework boots:
  * no session, routing or database work for a stylesheet or a script.
  */
 require FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'Http' . DIRECTORY_SEPARATOR . 'AssetServer.php';
-if (\Core\Http\AssetServer::handle($_SERVER, FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Assets')) {
+if (\Core\Http\AssetServer::handle($_SERVER, [
+    FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'site' . DIRECTORY_SEPARATOR . 'Assets',
+    FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Assets',
+])) {
     return;
 }
 

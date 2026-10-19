@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Core\Http;
 
+use Core\Auth\Sso\SsoClientController;
+use Core\Auth\AvatarController;
+use Core\Auth\PasskeyController;
+use Core\Auth\Sso\SsoServerController;
 use Core\Config\Config;
 use Core\Container\Container;
 use Core\Error\ErrorHandler;
@@ -42,6 +46,10 @@ class Kernel implements RequestHandlerInterface
     public const CORE_HANDLERS = [
         LiveComponentHandler::class,
         PushController::class,
+        SsoServerController::class,
+        SsoClientController::class,
+        AvatarController::class,
+        PasskeyController::class,
     ];
 
     /**
@@ -169,20 +177,19 @@ class Kernel implements RequestHandlerInterface
     }
 
     /**
-     * @brief Discovers application controllers in the configured directory.
+     * @brief Discovers application controllers in the configured directory and in the site layer.
      *
      * @return array<string, string> Class => file.
      */
     protected function discoverControllers(): array
     {
-        return $this->router->discoverControllers(
-            (string)Config::get('routing.controllers_path', FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Controllers'),
-            (string)Config::get('routing.controllers_namespace', 'App\\Controllers\\')
-        );
+        return $this->router->discoverApplicationControllers();
     }
 
     /**
      * @brief Handles the request and always returns a response (never throws).
+     *
+     * The response is adapted to the request with Response::prepare() (conditional and range requests of files).
      *
      * @param Request $request Incoming request.
      * @return Response
@@ -202,7 +209,7 @@ class Kernel implements RequestHandlerInterface
             $globalSpecs = (array)Config::get('middleware.global', []);
             $core = new CallableHandler(fn(Request $r): Response => $this->router->dispatch($r, $renderer));
 
-            return (new Pipeline($this->middlewareResolver->resolve($globalSpecs), $core, $renderer))->handle($request);
+            return (new Pipeline($this->middlewareResolver->resolve($globalSpecs), $core, $renderer))->handle($request)->prepare($request);
         } catch (Throwable $e) {
             return $renderer($e, $request);
         }

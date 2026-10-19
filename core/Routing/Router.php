@@ -94,11 +94,15 @@ class Router
      * @param string $path URL path pattern.
      * @param callable|array{class-string, string} $handler Action handler.
      * @param string|null $domain Domain name of `app.domains` the route is bound to; null = every application host.
+     *                            The path of a domain with one ('app.example.com/songs') is put in front.
      * @return Route Created route instance.
      * @throws CoreException If the domain is unknown or shares a placeholder name with the path.
      */
     public function addRoute(string $method, string $path, mixed $handler, ?string $domain = null): Route
     {
+        if ($domain !== null && $this->domains()->has($domain) && ($section = $this->domains()->path($domain)) !== '') {
+            $path = $section . (trim($path, '/') === '' ? '' : '/' . ltrim($path, '/'));
+        }
         $route = new Route(strtoupper($method), $path, $handler, null, $domain);
         if ($domain !== null) {
             $this->assertDomain($route);
@@ -376,6 +380,9 @@ class Router
      */
     public function discoverControllers(string $directoryPath, string $baseNamespace = 'App\\Controllers\\'): array
     {
+        if ($directoryPath === '') {
+            return [];
+        }
         $realDirectoryPath = realpath($directoryPath);
         if ($realDirectoryPath === false || !is_dir($realDirectoryPath)) {
             return [];
@@ -409,11 +416,27 @@ class Router
     }
 
     /**
+     * @brief Discovers the controllers of the application (routing.controllers_path, App\\Controllers) and of the site
+     *        layer (site/Controllers, Site\\Controllers; see Core\\Layers).
+     *
+     * @return array<string, string> Class => file.
+     */
+    public function discoverApplicationControllers(): array
+    {
+        $site = \Core\Layers::siteDir();
+
+        return $this->discoverControllers(
+            (string)\Core\Config\Config::get('routing.controllers_path', \Core\Layers::appDir() . DIRECTORY_SEPARATOR . 'Controllers'),
+            (string)\Core\Config\Config::get('routing.controllers_namespace', 'App\\Controllers\\')
+        ) + ($site === null ? [] : $this->discoverControllers($site . DIRECTORY_SEPARATOR . 'Controllers', 'Site\\Controllers\\'));
+    }
+
+    /**
      * @brief Finds the route matching the request.
      *
-     * With `app.domains` configured, the host is resolved first: an unknown host yields 404, and the
-     * request attributes 'domain' (name or null) and 'domain_params' (host placeholder values) are set,
-     * also for error pages.
+     * With `app.domains` configured, the host (and for domains with a path, the path) is resolved
+     * first: an unknown host yields 404, and the request attributes 'domain' (name or null) and
+     * 'domain_params' (host placeholder values) are set, also for error pages.
      *
      * Static routes (no placeholders) are resolved by an O(1) lookup and take precedence over
      * placeholder routes, also across groups, so a global '/login' is not shadowed by a domain's
@@ -432,7 +455,7 @@ class Router
 
         $resolved = null;
         if ($this->domains()->isEnabled()) {
-            $resolved = $this->domains()->resolve($request->host());
+            $resolved = $this->domains()->resolve($request->host(), $path);
             if ($resolved === null) {
                 throw new RouteNotFoundException("The host '{$request->host()}' is not listed in app.domains.", 404);
             }

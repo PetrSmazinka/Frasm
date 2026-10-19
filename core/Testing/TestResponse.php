@@ -6,6 +6,7 @@ namespace Core\Testing;
 
 use Closure;
 use Core\Exceptions\AssertionFailedException;
+use Core\Http\FileResponse;
 use Core\Http\Response;
 use Throwable;
 
@@ -48,13 +49,13 @@ final class TestResponse
     }
 
     /**
-     * @brief Returns the body.
+     * @brief Returns the body (for a FileResponse the bytes it streams, i.e. the selected range).
      *
      * @return string
      */
     public function content(): string
     {
-        return $this->response->getContent();
+        return $this->response instanceof FileResponse ? $this->response->contents() : $this->response->getContent();
     }
 
     /**

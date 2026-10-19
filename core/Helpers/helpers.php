@@ -25,7 +25,8 @@ if (!function_exists('__')) {
 
 if (!function_exists('asset')) {
     /**
-     * @brief Returns the URL of an application asset from app/Assets, versioned by its modification time.
+     * @brief Returns the URL of an application asset from app/Assets (or site/Assets, which wins), versioned by its
+     *        modification time.
      *
      * Example: <link rel="stylesheet" href="<?= asset('css/app.css') ?>"> gives
      * "/assets/css/app.css?v=6718a3f2". The version changes whenever the file changes, so browsers
@@ -41,7 +42,7 @@ if (!function_exists('asset')) {
             ? $container->get(\Core\Http\Request::class)
             : \Core\Http\Request::fromGlobals();
 
-        return \Core\Http\AssetServer::url($path, $request->basePath(), FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Assets');
+        return \Core\Http\AssetServer::url($path, $request->basePath(), \Core\Layers::directories('Assets'));
     }
 }
 
@@ -107,6 +108,9 @@ if (!function_exists('frasm_head')) {
             if ($pwaEnabled) {
                 $features[] = 'pwa';
             }
+            if (\Core\Auth\Passkeys::isEnabled()) {
+                $features[] = 'passkey';
+            }
         }
 
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
@@ -139,7 +143,7 @@ if (!function_exists('frasm_head')) {
         }
 
         foreach ($features as $feature) {
-            if (!in_array($feature, ['nav', 'live', 'stream', 'push', 'pwa'], true)) {
+            if (!in_array($feature, ['nav', 'live', 'stream', 'push', 'pwa', 'passkey'], true)) {
                 throw new \Core\Exceptions\CoreException("Unknown frasm_head() feature '{$feature}'.");
             }
 

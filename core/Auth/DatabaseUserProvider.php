@@ -22,13 +22,14 @@ class DatabaseUserProvider implements UserProviderInterface
      * @brief Loads the identity of a user by primary key.
      *
      * @param int|string $id User primary key.
-     * @return Identity|null
+     * @return Identity|null Null when the user does not exist or the account has expired (`expires_at`).
      * @throws \Core\Exceptions\DatabaseException On query failure.
      */
     public function findIdentityById(int|string $id): ?Identity
     {
         $user = DB::getInstance()->selectOne(
-            'SELECT `id`, `permissions`, `password_hash` FROM `frasm_users` WHERE `id` = ? LIMIT 1',
+            'SELECT `id`, `permissions`, `password_hash` FROM `frasm_users`
+             WHERE `id` = ? AND (`expires_at` IS NULL OR `expires_at` > NOW()) LIMIT 1',
             [$id]
         );
 

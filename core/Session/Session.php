@@ -6,6 +6,7 @@ namespace Core\Session;
 
 use Core\Config\Config;
 use Core\Container\Container;
+use Core\Exceptions\CoreException;
 use Core\Http\Request;
 
 /**
@@ -26,6 +27,11 @@ class Session
     private const FLASH_KEY = '_flash';
 
     /**
+     * @var bool Whether release() closed the session for the rest of the request.
+     */
+    private static bool $released = false;
+
+    /**
      * @brief Ensures session is started with secure defaults.
      *
      * Enforces strict mode (rejects uninitialized session IDs), cookie-only transport,
@@ -34,11 +40,15 @@ class Session
      * files elsewhere (e.g. tmpfs) and enables PHP's session garbage collection for that path.
      *
      * @return void
+     * @throws CoreException When the session was released in this request (release()).
      */
     public static function start(): void
     {
         if (session_status() !== PHP_SESSION_NONE) {
             return;
+        }
+        if (self::$released) {
+            throw new CoreException('The session was released in this request (Session::release()); it cannot be written any more.');
         }
 
         if (!headers_sent()) {
@@ -75,6 +85,46 @@ class Session
         }
 
         session_start();
+    }
+
+    /**
+     * @brief Writes the session and releases its lock for the rest of the request.
+     *
+     * PHP locks the session file while the session is open, so a slow action (generating an image,
+     * a long computation, a large download) makes every other request of the same user wait for it.
+     * Call release() at the start of such an action, after authorization: the data read so far stay
+     * available read-only (Auth::check(), roles, CSRF token); writes (set(), flash(), regenerate(), …)
+     * throw a CoreException.
+     *
+     * @return void
+     */
+    public static function release(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        self::$released = true;
+    }
+
+    /**
+     * @brief Tells whether release() was called in this request.
+     *
+     * @return bool
+     */
+    public static function isReleased(): bool
+    {
+        return self::$released;
+    }
+
+    /**
+     * @brief Forgets release() before the next request handled by the same process (test client).
+     *
+     * @return void
+     */
+    public static function reset(): void
+    {
+        self::$released = false;
     }
 
     /**
@@ -259,6 +309,11 @@ class Session
      */
     protected static function resume(): bool
     {
+        // Released by the action: read-only access to the data read before
+        if (self::$released) {
+            return isset($_SESSION);
+        }
+
         // After session_write_close() and sent headers (event streams rendering views), the session
         // cannot be started again; the data read earlier stays available read-only. Checked before
         // exists(): a session started in this request (remember-me login) has no cookie in the request.

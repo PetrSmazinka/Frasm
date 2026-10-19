@@ -6,7 +6,8 @@ namespace Core\Http;
 
 /**
  * @file AssetServer.php
- * @brief Serves the application's own static files (app/Assets) under the /assets/ URL.
+ * @brief Serves the application's own static files (app/Assets, and site/Assets of the site layer over them) under
+ *        the /assets/ URL.
  */
 
 /**
@@ -56,10 +57,11 @@ final class AssetServer
      * @brief Serves the request when it targets an asset.
      *
      * @param array<string, mixed> $server $_SERVER.
-     * @param string $directory Asset directory (app/Assets).
+     * @param string|list<string> $directory Asset directory (app/Assets), or directories – the first one having the
+     *        file serves it (site/Assets before app/Assets).
      * @return bool True when the request was answered (also with 404/405), false when it is not an asset request.
      */
-    public static function handle(array $server, string $directory): bool
+    public static function handle(array $server, string|array $directory): bool
     {
         $path = (string)parse_url((string)($server['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
         $base = self::basePath((string)($server['SCRIPT_NAME'] ?? ''));
@@ -77,7 +79,13 @@ final class AssetServer
             return true;
         }
 
-        $file = self::resolve(rawurldecode(substr($path, strlen(self::PREFIX))), $directory);
+        $file = null;
+        foreach ((array)$directory as $candidate) {
+            $file = self::resolve(rawurldecode(substr($path, strlen(self::PREFIX))), $candidate);
+            if ($file !== null) {
+                break;
+            }
+        }
         if ($file === null) {
             self::fail(404, 'Not Found');
             return true;
@@ -116,16 +124,21 @@ final class AssetServer
      *
      * @param string $path Path inside app/Assets, e.g. "css/app.css".
      * @param string $base Application base path ('' at the web root).
-     * @param string $directory Asset directory.
+     * @param string|list<string> $directory Asset directory, or directories (the first one having the file).
      * @return string
      */
-    public static function url(string $path, string $base, string $directory): string
+    public static function url(string $path, string $base, string|array $directory): string
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
         $url = $base . rtrim(self::PREFIX, '/') . '/' . implode('/', array_map('rawurlencode', explode('/', $path)));
-        $file = $directory . DIRECTORY_SEPARATOR . $path;
+        foreach ((array)$directory as $candidate) {
+            $file = $candidate . DIRECTORY_SEPARATOR . $path;
+            if (is_file($file)) {
+                return $url . '?v=' . dechex((int)filemtime($file));
+            }
+        }
 
-        return is_file($file) ? $url . '?v=' . dechex((int)filemtime($file)) : $url;
+        return $url;
     }
 
     /**

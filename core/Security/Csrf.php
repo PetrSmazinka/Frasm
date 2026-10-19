@@ -43,13 +43,19 @@ final class Csrf
     /**
      * @brief Returns the current token, generating it (and starting the session) when absent.
      *
-     * @return string 64-character hexadecimal token.
+     * After Session::release() a missing token cannot be stored: an empty string is returned then
+     * (a page rendered after the release, e.g. an error page, has no form to protect).
+     *
+     * @return string 64-character hexadecimal token, or '' (see above).
      */
     public static function token(): string
     {
         $token = Session::get(self::SESSION_KEY);
 
         if (!is_string($token) || $token === '') {
+            if (Session::isReleased()) {
+                return '';
+            }
             $token = self::regenerate();
         }
 

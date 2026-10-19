@@ -61,12 +61,14 @@ class Scheduler
      * @param Router $router Router (controller discovery).
      * @param TaskStore $store Task state and locks.
      * @param LoggerInterface $logger Logger.
+     * @param TaskAlerts $alerts E-mails about failing tasks (scheduler.alerts).
      */
     public function __construct(
         private readonly Container $container,
         private readonly Router $router,
         private readonly TaskStore $store,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly TaskAlerts $alerts
     ) {
     }
 
@@ -98,7 +100,7 @@ class Scheduler
     }
 
     /**
-     * @brief Finds all methods with #[Schedule] in app/Controllers and app/Tasks.
+     * @brief Finds all methods with #[Schedule] in the controllers and tasks of app/ and site/.
      *
      * @return list<ScheduledTask>
      */
@@ -108,11 +110,8 @@ class Scheduler
             return $this->tasks;
         }
 
-        $classes = $this->router->discoverControllers(
-            (string)Config::get('routing.controllers_path', FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Controllers'),
-            (string)Config::get('routing.controllers_namespace', 'App\\Controllers\\')
-        );
-        $classes += $this->discoverTaskClasses();
+        $classes = $this->router->discoverApplicationControllers();
+        $classes += \Core\Layers::classes('Tasks');
 
         $tasks = [];
         foreach ($classes as $class => $file) {
@@ -230,26 +229,12 @@ class Scheduler
 
         try {
             $this->store->finish($task->key(), $error === null, $error, $durationMs);
+            $this->alerts->afterRun($task->key(), $error === null, $error);
         } catch (Throwable $e) {
             // The lock expires after the task timeout, so a failed bookkeeping write does not block the task forever
             $this->logger->error('Scheduled task {task} could not record its result: {error}', ['task' => $task->key(), 'error' => $e->getMessage()]);
         }
 
         return ['task' => $task->key(), 'success' => $error === null, 'error' => $error, 'duration_ms' => $durationMs];
-    }
-
-    /**
-     * @brief Lists classes in app/Tasks (namespace App\Tasks).
-     *
-     * @return array<string, string> Class => file.
-     */
-    private function discoverTaskClasses(): array
-    {
-        $classes = [];
-        foreach (glob(FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Tasks' . DIRECTORY_SEPARATOR . '*.php') ?: [] as $file) {
-            $classes['App\\Tasks\\' . basename($file, '.php')] = $file;
-        }
-
-        return $classes;
     }
 }

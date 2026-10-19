@@ -57,6 +57,11 @@ final class TestClient
     private array $headers = [];
 
     /**
+     * @var array<string, string> Cookies sent with every request (besides the session cookie).
+     */
+    private array $cookies = [];
+
+    /**
      * @var string|null ID of this client's PHP session (null = no session yet).
      */
     private ?string $sessionId = null;
@@ -132,6 +137,23 @@ final class TestClient
     }
 
     /**
+     * @brief Sends a cookie with every following request (e.g. a preference the browser stores).
+     *
+     * @param string $name Cookie name.
+     * @param string|null $value Value, or null to stop sending it.
+     * @return self
+     */
+    public function withCookie(string $name, ?string $value): self
+    {
+        if ($value === null) {
+            unset($this->cookies[$name]);
+        } else {
+            $this->cookies[$name] = $value;
+        }
+        return $this;
+    }
+
+    /**
      * @brief Sends a GET request.
      *
      * @param string $uri Path with an optional query string.
@@ -174,6 +196,28 @@ final class TestClient
         }
 
         return $this->dispatch($this->request(strtoupper($method), $uri, [], $headers, $body));
+    }
+
+    /**
+     * @brief Sends a request with a raw body (binary uploads, other formats than forms and JSON).
+     *
+     * Unsafe methods carry the CSRF token in the X-CSRF-TOKEN header.
+     *
+     * @param string $method HTTP method.
+     * @param string $uri Path with an optional query string.
+     * @param string $body Raw body.
+     * @param array<string, string> $headers Headers (Content-Type defaults to application/octet-stream).
+     * @return TestResponse
+     */
+    public function raw(string $method, string $uri, string $body, array $headers = []): TestResponse
+    {
+        $method = strtoupper($method);
+        $headers += ['Content-Type' => 'application/octet-stream', 'Content-Length' => (string)strlen($body)];
+        if ($this->csrf && !in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
+            $headers += ['X-CSRF-TOKEN' => $this->csrfToken()];
+        }
+
+        return $this->dispatch($this->request($method, $uri, [], $headers, $body));
     }
 
     /**
@@ -298,18 +342,21 @@ final class TestClient
     }
 
     /**
-     * @brief Adds the session cookie of this client to a request.
+     * @brief Adds the cookies of this client (withCookie() and the session) to a request.
      *
      * @param Request $request Request without cookies.
      * @return Request
      */
     private function withSessionCookie(Request $request): Request
     {
-        if ($this->sessionId === null) {
+        if ($this->sessionId === null && $this->cookies === []) {
             return $request;
         }
 
-        $cookies = [session_name() => $this->sessionId];
+        $cookies = $this->cookies;
+        if ($this->sessionId !== null) {
+            $cookies[session_name()] = $this->sessionId;
+        }
         return new Request((array)$request->query(), (array)$request->post(), $cookies, [], $this->serverOf($request), $request->content());
     }
 
@@ -331,6 +378,7 @@ final class TestClient
      */
     private function activateSession(): void
     {
+        Session::reset();
         if (session_status() === PHP_SESSION_ACTIVE && session_id() !== $this->sessionId) {
             session_write_close();
         }

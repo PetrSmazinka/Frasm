@@ -187,6 +187,17 @@ class Auth
     }
 
     /**
+     * @brief Forgets the identity of an API token request (called at the start of every request, so it never
+     *        carries over to the next request handled by the same process, e.g. in tests or workers).
+     *
+     * @return void
+     */
+    public static function clearStatelessUser(): void
+    {
+        self::$statelessIdentity = null;
+    }
+
+    /**
      * @brief Checks whether the current identity was authenticated statelessly (API token).
      *
      * @return bool
@@ -365,6 +376,25 @@ class Auth
         self::issueRememberToken($identity->id);
 
         return true;
+    }
+
+    /**
+     * @brief Validates a page to return to after signing in (the `return` parameter added by AuthorizeMiddleware).
+     *
+     * Only a path of this site is accepted ("/…", not "//host" or "/\host"), so the parameter cannot send users
+     * to another site (open redirect).
+     *
+     * @param mixed $value Requested path.
+     * @return string|null The path, or null when it is not a local path.
+     */
+    public static function safeReturnPath(mixed $value): ?string
+    {
+        if (!is_string($value) || $value === '' || strlen($value) > 2000 || $value[0] !== '/'
+            || preg_match('#^/[/\\\\]|[\x00-\x1F\x7F]#', $value)) {
+            return null;
+        }
+
+        return $value;
     }
 
     /**

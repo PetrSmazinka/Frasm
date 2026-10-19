@@ -8,7 +8,8 @@ declare(strict_types=1);
  *
  * Defines path constants, registers the PSR-4 autoloader and global helpers, loads configuration,
  * sets the timezone and registers core services in the DI container. When `app/bootstrap.php`
- * exists and returns a callable, it is invoked with the container to register application bindings.
+ * exists and returns a callable, it is invoked with the container to register application bindings;
+ * then `site/bootstrap.php` of the site layer (see Core\Layers) the same way.
  * Include with require_once; the container is also available via Container::getInstance().
  *
  * @return \Core\Container\Container
@@ -33,6 +34,8 @@ use Core\Routing\Router;
 defined('FRASM_ROOT_DIR') || define('FRASM_ROOT_DIR', dirname(__DIR__));
 defined('FRASM_CORE_DIR') || define('FRASM_CORE_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'core');
 defined('FRASM_APP_DIR') || define('FRASM_APP_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'app');
+// Optional site layer on top of app/ (Core\Layers); '' turns it off
+defined('FRASM_SITE_DIR') || define('FRASM_SITE_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'site');
 defined('FRASM_CONFIG_DIR') || define('FRASM_CONFIG_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'config');
 defined('FRASM_STORAGE_DIR') || define('FRASM_STORAGE_DIR', FRASM_ROOT_DIR . DIRECTORY_SEPARATOR . 'storage');
 
@@ -46,6 +49,9 @@ require_once FRASM_CORE_DIR . DIRECTORY_SEPARATOR . 'Autoload' . DIRECTORY_SEPAR
 $autoloader = new Autoloader();
 $autoloader->addNamespace('Core', FRASM_CORE_DIR);
 $autoloader->addNamespace('App', FRASM_APP_DIR);
+if (FRASM_SITE_DIR !== '') {
+    $autoloader->addNamespace('Site', FRASM_SITE_DIR);
+}
 $autoloader->register();
 
 require_once FRASM_CORE_DIR . DIRECTORY_SEPARATOR . 'Helpers' . DIRECTORY_SEPARATOR . 'helpers.php';
@@ -97,6 +103,7 @@ $container->singleton(\Core\Queue\DatabaseQueue::class, fn(): \Core\Queue\Databa
     (int)Config::get('queue.retry_after', 300)
 ));
 $container->singleton(\Core\Queue\QueueInterface::class, fn(Container $c): \Core\Queue\QueueInterface => $c->get(\Core\Queue\DatabaseQueue::class));
+$container->singleton(\Core\Mail\ArrayTransport::class);
 $container->singleton(Domains::class, fn(): Domains => new Domains(
     (array)Config::get('app.domains', [])
 ));
@@ -107,14 +114,16 @@ $container->singleton(Kernel::class);
 
 /*
  * -----------------------------------------------------------------------------
- * 4. Application Bindings (optional app/bootstrap.php returning callable(Container): void)
+ * 4. Application Bindings (optional app/bootstrap.php, then site/bootstrap.php, returning callable(Container): void)
  * -----------------------------------------------------------------------------
  */
-$appBootstrap = FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'bootstrap.php';
-if (is_file($appBootstrap)) {
-    $register = require $appBootstrap;
-    if (is_callable($register)) {
-        $register($container);
+foreach (array_reverse(\Core\Layers::all()) as $layer) {
+    $layerBootstrap = $layer['path'] . DIRECTORY_SEPARATOR . 'bootstrap.php';
+    if (is_file($layerBootstrap)) {
+        $register = require $layerBootstrap;
+        if (is_callable($register)) {
+            $register($container);
+        }
     }
 }
 

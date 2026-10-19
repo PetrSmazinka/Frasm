@@ -100,7 +100,9 @@ final class TestRunner
         $started = microtime(true);
 
         foreach ($classes as $class) {
-            $name = str_starts_with($class, $namespace) ? substr($class, strlen($namespace)) : $class;
+            // Tests of the site layer (Site\Tests) show as "Site\Directory\ClassTest"
+            $name = str_starts_with($class, $namespace) ? substr($class, strlen($namespace))
+                : (str_starts_with($class, 'Site\\Tests\\') ? 'Site\\' . substr($class, strlen('Site\\Tests\\')) : $class);
             $methods = array_values(array_filter(
                 (new ReflectionClass($class))->getMethods(ReflectionMethod::IS_PUBLIC),
                 fn(ReflectionMethod $method): bool => str_starts_with($method->getName(), 'test') && !$method->isStatic()

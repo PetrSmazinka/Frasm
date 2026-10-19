@@ -160,13 +160,14 @@ class Lang
         $cacheKey = "{$locale}.{$file}";
 
         if (!isset(self::$loaded[$cacheKey])) {
-            $langDir = defined('FRASM_APP_DIR')
-                ? FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Lang'
-                : dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Lang';
-            $path = $langDir . DIRECTORY_SEPARATOR . $locale . DIRECTORY_SEPARATOR . $file . '.php';
-
-            $content = is_file($path) ? require $path : [];
-            self::$loaded[$cacheKey] = is_array($content) ? $content : [];
+            // The dictionary of app/, with the one of site/ merged over it
+            $dictionary = [];
+            foreach (array_reverse(\Core\Layers::directories('Lang')) as $langDir) {
+                $path = $langDir . DIRECTORY_SEPARATOR . $locale . DIRECTORY_SEPARATOR . $file . '.php';
+                $content = is_file($path) ? require $path : [];
+                $dictionary = array_replace_recursive($dictionary, is_array($content) ? $content : []);
+            }
+            self::$loaded[$cacheKey] = $dictionary;
         }
 
         $dictionary = self::$loaded[$cacheKey];

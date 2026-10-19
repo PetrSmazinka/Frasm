@@ -56,18 +56,17 @@ abstract class BaseController
      */
     protected function view(string $template, array $data = []): string
     {
-        $defaultViewsPath = defined('FRASM_APP_DIR')
-            ? FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Views'
-            : dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Views';
-
-        $basePath = (string)Config::get('app.views_path', $defaultViewsPath);
         $cleanTemplate = str_ends_with($template, '.php') ? $template : $template . '.php';
 
         if (str_contains($cleanTemplate, '..') || str_contains($cleanTemplate, "\0")) {
             throw new CoreException("Invalid view template name: '{$template}'", 500);
         }
 
-        $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $cleanTemplate;
+        // app.views_path, or the views of the layers (a view of site/ replaces the one of app/)
+        $basePath = Config::get('app.views_path');
+        $fullPath = $basePath !== null
+            ? rtrim((string)$basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $cleanTemplate
+            : (\Core\Layers::find('Views/' . $cleanTemplate) ?? \Core\Layers::appDir() . DIRECTORY_SEPARATOR . 'Views' . DIRECTORY_SEPARATOR . $cleanTemplate);
 
         if (!is_file($fullPath)) {
             throw new CoreException("View template not found: '{$fullPath}'", 500);

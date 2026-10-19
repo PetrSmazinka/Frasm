@@ -31,6 +31,7 @@ use Core\Testing\TestRunner;
  * A connection whose database stays the same as outside the tests is disabled, so tests can never
  * read or change real data; the command refuses to run when a test database equals a real one by
  * explicit configuration. The test databases are migrated before the run (--fresh wipes them first).
+ * E-mails are kept in memory (mail.transport = array, see Core\Mail\ArrayTransport), never sent.
  */
 final class TestCommand extends Command
 {
@@ -110,7 +111,11 @@ final class TestCommand extends Command
         }
 
         $runner = new TestRunner($output);
-        $classes = $runner->discover((string)Config::get('testing.path', FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Tests'));
+        $classes = $runner->discover((string)Config::get('testing.path', \Core\Layers::appDir() . DIRECTORY_SEPARATOR . 'Tests'));
+        $site = \Core\Layers::siteDir();
+        if ($site !== null) {
+            $classes = [...$classes, ...$runner->discover($site . DIRECTORY_SEPARATOR . 'Tests', 'Site\\Tests\\')];
+        }
         if ($classes === []) {
             $output->warning('No tests found in app/Tests.');
             return 0;
@@ -134,7 +139,17 @@ final class TestCommand extends Command
         }
 
         $testing = Config::get('testing', []);
-        Config::merge(['app' => ['env' => 'testing', 'debug' => true]]);
+        // E-mails stay in memory (Core\Mail\ArrayTransport) unless `testing` says otherwise
+        Config::merge(['app' => ['env' => 'testing', 'debug' => true], 'mail' => ['transport' => 'array']]);
+        // Fixed settings the tests of a layer expect (Tests/config.php of app/, then of site/), whatever the project
+        // configures – e.g. the domains of an application installed into several projects
+        foreach (array_reverse(\Core\Layers::all()) as $layer) {
+            $file = $layer['path'] . DIRECTORY_SEPARATOR . 'Tests' . DIRECTORY_SEPARATOR . 'config.php';
+            $values = is_file($file) ? require $file : null;
+            if (is_array($values)) {
+                Config::merge($values);
+            }
+        }
         if (is_array($testing)) {
             Config::merge(array_diff_key($testing, ['path' => true]));
         }

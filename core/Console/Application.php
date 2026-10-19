@@ -50,6 +50,7 @@ final class Application
         Commands\PwaBuildCommand::class,
         Commands\PushVapidCommand::class,
         Commands\PushSendCommand::class,
+        Commands\MailTestCommand::class,
         Commands\TokenCreateCommand::class,
         Commands\UserCreateCommand::class,
         Commands\UserPasswordCommand::class,
@@ -291,20 +292,14 @@ final class Application
     }
 
     /**
-     * @brief Finds application commands (app/Commands/*Command.php, namespace App\Commands).
+     * @brief Finds application commands (app/Commands/*Command.php, namespace App\Commands, and the same in site/).
      *
      * @return list<class-string<Command>>
      */
     private function discoverApplicationCommands(): array
     {
-        $directory = FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Commands';
-        if (!is_dir($directory)) {
-            return [];
-        }
-
         $classes = [];
-        foreach (glob($directory . DIRECTORY_SEPARATOR . '*Command.php') ?: [] as $file) {
-            $class = 'App\\Commands\\' . basename($file, '.php');
+        foreach (array_keys(\Core\Layers::classes('Commands', 'Command.php')) as $class) {
             if (class_exists($class) && is_subclass_of($class, Command::class)) {
                 $classes[] = $class;
             }

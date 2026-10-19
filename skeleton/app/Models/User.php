@@ -13,10 +13,10 @@ use Core\DB\DB;
 class User
 {
     /**
-     * @brief Finds a user record matching either username or email.
+     * @brief Finds a user record matching either username or email (expired accounts are not found).
      *
      * @param string $identifier Username or email address.
-     * @return array<string, mixed>|null Associative user record or null if not found.
+     * @return array<string, mixed>|null Associative user record or null if not found or expired.
      */
     public static function findByIdentifier(string $identifier): ?array
     {
@@ -24,7 +24,8 @@ class User
 
         $query = 'SELECT id, name, email, username, password_hash, permissions 
                   FROM `frasm_users` 
-                  WHERE `username` = ? OR `email` = ? 
+                  WHERE (`username` = ? OR `email` = ?)
+                    AND (`expires_at` IS NULL OR `expires_at` > NOW())
                   LIMIT 1';
 
         return $db->selectOne($query, [$identifier,$identifier]);

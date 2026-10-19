@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\Error;
 
 use Core\Config\Config;
+use Core\Container\Container;
 use Core\Exceptions\AuthException;
 use Core\Exceptions\CoreException;
 use Core\Exceptions\CsrfException;
@@ -17,6 +18,7 @@ use Core\Exceptions\RouteNotFoundException;
 use Core\Exceptions\ValidationException;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Routing\Domains;
 use Core\Logger\LoggerInterface;
 use Core\Session\Session;
 use ErrorException;
@@ -35,8 +37,9 @@ use Throwable;
  *   deprecations are only logged so a PHP upgrade cannot take the application down.
  * - Server errors (5xx) are logged with their trace; client errors (4xx) are not logged here.
  * - JSON is returned when the client expects it (Accept: application/json or X-Requested-With),
- *   otherwise HTML: a diagnostic page in debug mode, or `app/Views/errors/{status}.php`
- *   (falling back to a built-in minimal page) in production. No stack trace or exception message
+ *   otherwise HTML: a diagnostic page in debug mode, or in production `app/Views/errors/{domain}/{status}.php`,
+ *   `errors/{domain}/error.php` (in the look of a subdomain), `errors/{status}.php` or `errors/error.php`
+ *   (falling back to a built-in minimal page). No stack trace or exception message
  *   leaks when `app.debug` is false.
  * - ValidationException on a browser form submission redirects back with errors and old input flashed.
  */
@@ -249,14 +252,15 @@ class ErrorHandler
             return $e->getResponse();
         }
 
-        if ($e instanceof ValidationException && !$request->expectsJson()) {
+        // A released session (Session::release()) cannot carry the errors back: render them instead
+        if ($e instanceof ValidationException && !$request->expectsJson() && !Session::isReleased()) {
             return $this->redirectBackWithErrors($e, $request);
         }
 
         $status = $this->statusCodeFor($e);
         $response = $request->expectsJson()
             ? Response::json($this->jsonPayload($e, $status), $status, [], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR)
-            : Response::html($this->isDebug() ? $this->debugPage($e, $status) : $this->productionPage($status), $status);
+            : Response::html($this->isDebug() ? $this->debugPage($e, $status) : $this->productionPage($status, $this->domainOf($request)), $status);
 
         foreach ($this->headersFor($e) as $name => $value) {
             $response->header($name, $value);
@@ -389,20 +393,40 @@ class ErrorHandler
     }
 
     /**
-     * @brief Renders the production error page from `app/Views/errors/{status}.php` or the built-in fallback.
+     * @brief Renders the production error page or the built-in fallback.
      *
-     * The template receives `$status` (int) and `$message` (reason phrase).
+     * The first existing template wins: `app/Views/errors/{domain}/{status}.php`, `errors/{domain}/error.php`
+     * (pages in the look of a subdomain, see app.domains), `errors/{status}.php`, `errors/error.php`. The template
+     * receives `$status` (int), `$message` (reason phrase) and `$domain` (name of the domain, or null).
      *
      * @param int $status HTTP status code.
+     * @param string|null $domain Domain of the request (app.domains), or null.
      * @return string
      */
-    protected function productionPage(int $status): string
+    protected function productionPage(int $status, ?string $domain = null): string
     {
-        $viewsPath = (string)Config::get('app.views_path', FRASM_APP_DIR . DIRECTORY_SEPARATOR . 'Views');
-        $template = rtrim($viewsPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'errors' . DIRECTORY_SEPARATOR . $status . '.php';
+        $viewsPath = Config::get('app.views_path');
+        $directories = $viewsPath !== null ? [(string)$viewsPath] : \Core\Layers::directories('Views');
+        $names = [];
+        if ($domain !== null && preg_match('/^[A-Za-z0-9_-]+$/D', $domain)) {
+            $names[] = $domain . DIRECTORY_SEPARATOR . $status . '.php';
+            $names[] = $domain . DIRECTORY_SEPARATOR . 'error.php';
+        }
+        $names[] = $status . '.php';
+        $names[] = 'error.php';
+        // The most specific name first; for each name a template of site/ before the one of app/
+        $candidates = [];
+        foreach ($names as $name) {
+            foreach ($directories as $directory) {
+                $candidates[] = rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'errors' . DIRECTORY_SEPARATOR . $name;
+            }
+        }
 
-        if (is_file($template)) {
-            $render = static function (string $__template, int $status, string $message): string {
+        foreach ($candidates as $template) {
+            if (!is_file($template)) {
+                continue;
+            }
+            $render = static function (string $__template, int $status, string $message, ?string $domain): string {
                 ob_start();
                 try {
                     require $__template;
@@ -413,10 +437,32 @@ class ErrorHandler
                 }
             };
 
-            return $render($template, $status, Response::reasonPhrase($status));
+            return $render($template, $status, Response::reasonPhrase($status), $domain);
         }
 
         return $this->minimalPage($status);
+    }
+
+    /**
+     * @brief Returns the domain of a request: set by routing, or resolved from the host (a request no route matched).
+     *
+     * @param Request $request Request.
+     * @return string|null
+     */
+    protected function domainOf(Request $request): ?string
+    {
+        $domain = $request->getAttribute('domain');
+        if (is_string($domain) && $domain !== '') {
+            return $domain;
+        }
+        try {
+            $domains = Container::getInstance()->get(Domains::class);
+            $resolved = $domains->isEnabled() ? $domains->resolve($request->host(), $request->path()) : null;
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $resolved['name'] ?? null;
     }
 
     /**

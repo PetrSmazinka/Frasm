@@ -70,7 +70,10 @@ class AuthorizeMiddleware implements ParameterizedMiddlewareInterface
         if (!Auth::check()) {
             $loginPath = Config::get('auth.login_path');
             if (is_string($loginPath) && $loginPath !== '' && $request->method() === 'GET' && !$request->expectsJson()) {
-                return Response::redirect($loginPath);
+                // The login page may send the user back here (Auth::safeReturnPath() validates the value)
+                $query = (array)$request->query();
+                $return = $request->path() . ($query !== [] ? '?' . http_build_query($query) : '');
+                return Response::redirect($return === '/' ? $loginPath : $loginPath . (str_contains($loginPath, '?') ? '&' : '?') . 'return=' . rawurlencode($return));
             }
 
             throw new AuthException("User is unauthenticated.", 401);
