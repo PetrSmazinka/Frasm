@@ -19,6 +19,10 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
+// Files made by commands stay writable for the group of the web server (shared storage, e.g. a disk mounted with
+// a fixed uid/gid, where the web server writes through the group).
+umask(0002);
+
 try {
     require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 } catch (Throwable $e) {

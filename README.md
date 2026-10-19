@@ -377,7 +377,9 @@ File responses answer byte ranges, so audio and video can be seeked (`206 Partia
 outside the file; `If-Range` is honoured), and carry validators (`ETag`, `Last-Modified`), so a repeated request
 gets `304 Not Modified`. Browsers revalidate the file on every use (`Cache-Control: private, no-cache`); set your
 own `Cache-Control` header to let them keep it. The session is closed before the file is streamed, so a long
-download does not block the user's other requests.
+download does not block the user's other requests. `->onProgress(fn() => …, seconds: 5)` calls a function when
+streaming starts and then every few seconds while it goes on – e.g. to tell background jobs that a video is playing,
+so they leave the disk to it.
 
 A slow action (generating an image, a long computation) blocks the user's other requests as well: PHP locks the
 session while it is open. Release the lock once the session has been read:
@@ -824,6 +826,9 @@ make db:reset ARGS=--help                        # help for one command
 | `test` | Application tests in `app/Tests` against the test databases |
 
 Your own commands go to `app/Commands/*Command.php` and are picked up automatically.
+
+Commands run with umask `0002`: files and folders they create stay writable for the group, so the web server can
+change them when it writes through the group (e.g. a disk mounted with a fixed `uid`/`gid`).
 
 ### Automation
 

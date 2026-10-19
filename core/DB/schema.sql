@@ -7,7 +7,8 @@
 -- Sections introduced by "-- @module <name>" are applied only when the module is
 -- enabled (see Migrator::CORE_MODULES). Statements must end with ';' at line end.
 -- Existing tables are altered only by statements preceded by "-- @unless-column <table>.<column>"
--- (run when the column is missing); otherwise use `php bin/frasm db:reset` during development.
+-- (run when the column is missing) or "-- @unless-type <table>.<column> <type>" (run while the column has another
+-- type); otherwise use `php bin/frasm db:reset` during development.
 -- =============================================================================
 
 -- @module core
@@ -63,7 +64,7 @@ CREATE TABLE IF NOT EXISTS `frasm_users` (
     `email` VARCHAR(255) NOT NULL,
     `username` VARCHAR(255) NOT NULL,
     `password_hash` VARCHAR(255) NOT NULL,
-    `permissions` VARCHAR(1000) NOT NULL DEFAULT '' COMMENT 'Comma-separated role names',
+    `permissions` TEXT NOT NULL DEFAULT '' COMMENT 'Comma-separated role names',
     `expires_at` DATETIME NULL COMMENT 'The account stops working at this time (e.g. guests); NULL = never',
     `external_id` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT 'SSO client: user ID at the SSO server',
     `synced_at` DATETIME NULL COMMENT 'SSO client: last refresh from the SSO server',
@@ -73,6 +74,11 @@ CREATE TABLE IF NOT EXISTS `frasm_users` (
     UNIQUE KEY `uniq_email` (`email`),
     UNIQUE KEY `uniq_external_id` (`external_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Roles of an administrator of many applications outgrew 1000 characters
+-- @unless-type frasm_users.permissions text
+ALTER TABLE `frasm_users`
+    MODIFY `permissions` TEXT NOT NULL DEFAULT '' COMMENT 'Comma-separated role names';
 
 -- @unless-column frasm_users.expires_at
 ALTER TABLE `frasm_users`

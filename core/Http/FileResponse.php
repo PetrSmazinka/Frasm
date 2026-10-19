@@ -43,6 +43,16 @@ class FileResponse extends Response
     protected int $length;
 
     /**
+     * @var (callable(): void)|null Called when streaming starts and then every $progressSeconds while it goes on.
+     */
+    protected $onProgress = null;
+
+    /**
+     * @var int Seconds between two calls of $onProgress.
+     */
+    protected int $progressSeconds = 5;
+
+    /**
      * @brief FileResponse constructor.
      *
      * @param string $path Absolute path to a readable file. Never pass unvalidated user input (path traversal).
@@ -292,6 +302,22 @@ class FileResponse extends Response
     }
 
     /**
+     * @brief Calls a function while the file is being sent: when streaming starts and then every few seconds (e.g. to
+     *        tell background jobs that media is playing, so they leave the disk to it).
+     *
+     * @param callable(): void $callback Function.
+     * @param int $seconds Seconds between two calls.
+     * @return static
+     */
+    public function onProgress(callable $callback, int $seconds = 5): static
+    {
+        $this->onProgress = $callback;
+        $this->progressSeconds = max(1, $seconds);
+
+        return $this;
+    }
+
+    /**
      * @brief Streams the selected bytes of the file in 64 KiB chunks.
      *
      * @return void
@@ -324,7 +350,12 @@ class FileResponse extends Response
             }
 
             $remaining = $this->length;
+            $progressAt = 0;
             while ($remaining > 0 && !feof($handle)) {
+                if ($this->onProgress !== null && time() - $progressAt >= $this->progressSeconds) {
+                    $progressAt = time();
+                    ($this->onProgress)();
+                }
                 $chunk = fread($handle, min(65536, $remaining));
                 if ($chunk === false || $chunk === '') {
                     break;

@@ -225,6 +225,9 @@ class Migrator
                 if ($statement['unless_column'] !== null && $this->columnExists(...$statement['unless_column'])) {
                     continue;
                 }
+                if ($statement['unless_type'] !== null && $this->columnType($statement['unless_type'][0], $statement['unless_type'][1]) === $statement['unless_type'][2]) {
+                    continue;
+                }
                 $this->db->query($statement['sql']);
             }
             $applied[] = $module;
@@ -238,10 +241,12 @@ class Migrator
      *
      * "-- @module <name>" starts a module section. "-- @unless-column <table>.<column>" makes the next
      * statement run only when that column does not exist yet: the portable way to add a column to an
-     * existing table (MySQL has no ADD COLUMN IF NOT EXISTS).
+     * existing table (MySQL has no ADD COLUMN IF NOT EXISTS). "-- @unless-type <table>.<column> <type>" makes it
+     * run only while the column has another data type (information_schema DATA_TYPE, e.g. text): changing a column
+     * once instead of on every run.
      *
      * @param string $path Schema file.
-     * @return array<string, list<array{sql: string, unless_column: array{0: string, 1: string}|null}>>
+     * @return array<string, list<array{sql: string, unless_column: array{0: string, 1: string}|null, unless_type: array{0: string, 1: string, 2: string}|null}>>
      * @throws DatabaseException If the file cannot be read or a directive is malformed.
      */
     public static function parseSchema(string $path): array
@@ -255,6 +260,7 @@ class Migrator
         $module = 'core';
         $buffer = '';
         $unlessColumn = null;
+        $unlessType = null;
 
         foreach (preg_split('/\R/', $content) ?: [] as $line) {
             $trimmed = trim($line);
@@ -272,6 +278,14 @@ class Migrator
                 continue;
             }
 
+            if (preg_match('/^--\s*@unless-type\s+(.*)$/i', $trimmed, $matches)) {
+                if (!preg_match('/^([a-z0-9_]+)\.([a-z0-9_]+)\s+([a-z]+)$/i', trim($matches[1]), $parts)) {
+                    throw new DatabaseException("Malformed schema directive '{$trimmed}' (expected @unless-type <table>.<column> <type>).");
+                }
+                $unlessType = [$parts[1], $parts[2], strtolower($parts[3])];
+                continue;
+            }
+
             if ($trimmed === '' || str_starts_with($trimmed, '--')) {
                 continue;
             }
@@ -279,14 +293,15 @@ class Migrator
             $buffer .= $line . "\n";
 
             if (str_ends_with($trimmed, ';')) {
-                $sections[$module][] = ['sql' => rtrim(trim($buffer), ';'), 'unless_column' => $unlessColumn];
+                $sections[$module][] = ['sql' => rtrim(trim($buffer), ';'), 'unless_column' => $unlessColumn, 'unless_type' => $unlessType];
                 $buffer = '';
                 $unlessColumn = null;
+                $unlessType = null;
             }
         }
 
         if (trim($buffer) !== '') {
-            $sections[$module][] = ['sql' => trim($buffer), 'unless_column' => $unlessColumn];
+            $sections[$module][] = ['sql' => trim($buffer), 'unless_column' => $unlessColumn, 'unless_type' => $unlessType];
         }
 
         return $sections;
@@ -305,6 +320,23 @@ class Migrator
             'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
             [$table, $column]
         ) !== null;
+    }
+
+    /**
+     * @brief Data type of a column in the current database (lower case, e.g. varchar, text), or null without it.
+     *
+     * @param string $table Table name.
+     * @param string $column Column name.
+     * @return string|null
+     */
+    private function columnType(string $table, string $column): ?string
+    {
+        $type = $this->db->selectValue(
+            'SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+            [$table, $column]
+        );
+
+        return $type === null ? null : strtolower((string)$type);
     }
 
     /**
