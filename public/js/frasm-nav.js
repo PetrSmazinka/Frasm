@@ -395,6 +395,9 @@
         if (action !== 'restore') {
             saveScroll();
         }
+        // A form sent back to the page it is on (save, add, delete → redirect to the same page) keeps the position:
+        // the fragment of a redirect does not survive fetch, and jumping to the top interrupts the work
+        const origin = { page: location.href.split('#')[0], x: window.scrollX, y: window.scrollY };
 
         const progress = startProgress();
         document.documentElement.setAttribute('aria-busy', 'true');
@@ -471,7 +474,8 @@
             await renderPage(doc);
             renderedPageKey = pageKey(location);
 
-            applyScroll(finalUrl, action === 'restore' ? options.scroll : null);
+            const samePage = method !== 'GET' && !url.hash && finalUrl.href.split('#')[0] === origin.page;
+            applyScroll(finalUrl, action === 'restore' ? options.scroll : (samePage && !finalUrl.hash ? { x: origin.x, y: origin.y } : null));
             const autofocus = document.body.querySelector('[autofocus]');
             if (autofocus) {
                 autofocus.focus();
