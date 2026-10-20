@@ -895,3 +895,10 @@ and `Core\Support\Phone::normalize('777 123 456')` gives `+420777123456` (spaces
 `00` becomes `+`, nine digits get `app.phone_country_code`, default `420`; `''` for an empty input, `null` for a text
 that is not a number). `Phone::format()` writes Czech and Slovak numbers in threes (`+420 777 123 456`),
 `Phone::href()` gives a `tel:` link.
+
+## Czech alphabetical order
+
+`Core\Support\Collation::compare($a, $b)` (for `usort()`) and `Collation::sort($texts)` order texts by the Czech
+alphabet without the intl extension: `č`, `ř`, `š`, `ž` and `ch` are letters of their own (`Cukr` < `Čáp`, `Hrad` <
+`Chata`), other accents count as the plain letter (`Údaje` < `Záznamník`), case decides last and runs of digits compare
+as numbers (`foto 2` < `foto 10`). In SQL use `COLLATE utf8mb4_czech_ci`.
