@@ -456,7 +456,9 @@ needs no authentication or CSRF token.
 Accounts carry a phone number and a profile photo (`frasm_users.phone`, `avatar`). Store a photo with
 `Core\Auth\Avatars::store($userId, $imageBytes)` (any JPEG/PNG/WebP/GIF becomes an upright 256 px square) and show it
 to signed-in users at `/_frasm/avatars/{id}?v={version}` (`Avatars::version()`; cached for good while the version
-stays). An SSO server passes both in the identity; its clients keep the phone and a local copy of the photo (downloaded
+stays). The photos are files `<id>.jpg` in `auth.avatars` (default `storage/app/avatars`); a directory set there
+is created only when its parent exists, so a folder on an external drive is never created under its empty mount point.
+An SSO server passes both in the identity; its clients keep the phone and a local copy of the photo (downloaded
 only when its version changes), so they never link the server. A client changes the name, e-mail and phone of its user with
 `SsoClient::setProfile($externalId, ['name' => …, 'email' => …, 'phone' => …])` (each only when given; a taken
 e-mail is refused). `Avatars::square()` turns a photo into the same form for photos an

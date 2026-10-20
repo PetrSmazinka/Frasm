@@ -140,7 +140,10 @@ class Avatars
     {
         $jpeg = self::square($image);
         $directory = self::directory();
-        if (!is_dir($directory) && !@mkdir($directory, 02775, true) && !is_dir($directory)) {
+        // A directory set in auth.avatars is created only when its parent exists: on a disk that is not mounted (an
+        // external drive) nothing is written under the empty mount point; the default one is created whole
+        $own = Config::get('auth.avatars') !== null;
+        if (!is_dir($directory) && (($own && !is_dir(dirname($directory))) || (!@mkdir($directory, 02775, !$own) && !is_dir($directory)))) {
             throw new InvalidArgumentException("The directory of the photos cannot be created ({$directory}).");
         }
         $target = $directory . DIRECTORY_SEPARATOR . $userId . '.jpg';
