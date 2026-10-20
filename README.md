@@ -881,3 +881,17 @@ default the host), `rp_name` the name the device shows (default `app.name`). `fr
 user verification is required, ES256 and RS256 are accepted, the counter of a key going back refuses it as cloned. An
 SSO client reads the account from its server at the sign-in and refuses it when the access ended there.
 
+
+## Telephone numbers
+
+Every `<input type="tel">` gets a picker of the country with its calling code (`public/js/frasm-phone.js`, part of
+`frasm_head()`; intl-tel-input is loaded from cdnjs only on pages with such a field) and is sent in the international
+form, `+420777123456`; a number that is not valid stops the form with a message at the field. `data-country="sk"`
+sets the default country of a field (otherwise `<meta name="frasm-phone-country">`, otherwise `cz`),
+`data-frasm-phone="off"` leaves a field plain.
+
+The server normalizes what comes anyway (typed without JavaScript, imported data): the rule `phone` validates a number
+and `Core\Support\Phone::normalize('777 123 456')` gives `+420777123456` (spaces, dashes, dots and parentheses go,
+`00` becomes `+`, nine digits get `app.phone_country_code`, default `420`; `''` for an empty input, `null` for a text
+that is not a number). `Phone::format()` writes Czech and Slovak numbers in threes (`+420 777 123 456`),
+`Phone::href()` gives a `tel:` link.

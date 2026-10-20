@@ -329,7 +329,7 @@ class SsoServer
     }
 
     /**
-     * @brief Checks and normalizes a phone number (digits, spaces, "+", "-", "(", ")"; spaces collapsed).
+     * @brief Checks a phone number and gives it in the international form (Core\Support\Phone: "+420777123456").
      *
      * @param string $phone Phone number.
      * @return string|null Null for an empty one.
@@ -337,15 +337,12 @@ class SsoServer
      */
     public static function phone(string $phone): ?string
     {
-        $phone = trim((string)preg_replace('/\s+/u', ' ', $phone));
-        if ($phone === '') {
-            return null;
-        }
-        if (!preg_match('/^\+?[0-9 ()-]{3,30}$/D', $phone) || preg_match_all('/[0-9]/', $phone) < 3) {
+        $normalized = \Core\Support\Phone::normalize($phone);
+        if ($normalized === null) {
             throw new \InvalidArgumentException('invalid_phone');
         }
 
-        return $phone;
+        return $normalized === '' ? null : $normalized;
     }
 
     /**

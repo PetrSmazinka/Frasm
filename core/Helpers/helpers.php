@@ -84,8 +84,8 @@ if (!function_exists('frasm_head')) {
      * of `pwa.apps` such as /smarthome or an app bound to the current subdomain) and registers the
      * service worker (feature 'pwa').
      *
-     * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'push', 'pwa'
-     *                                     (null = nav + live + stream, plus push and pwa when enabled).
+     * @param list<string>|null $features Client modules: 'nav', 'live', 'stream', 'phone', 'push', 'pwa', 'passkey'
+     *                                     (null = nav + live + stream + phone, plus push, pwa and passkey when enabled).
      * @return string HTML markup.
      * @throws \Core\Exceptions\CoreException On an unknown feature name.
      */
@@ -101,7 +101,7 @@ if (!function_exists('frasm_head')) {
         $pwaEnabled = $pwaApp !== null;
 
         if ($features === null) {
-            $features = ['nav', 'live', 'stream'];
+            $features = ['nav', 'live', 'stream', 'phone'];
             if ($pushEnabled) {
                 $features[] = 'push';
             }
@@ -143,7 +143,7 @@ if (!function_exists('frasm_head')) {
         }
 
         foreach ($features as $feature) {
-            if (!in_array($feature, ['nav', 'live', 'stream', 'push', 'pwa', 'passkey'], true)) {
+            if (!in_array($feature, ['nav', 'live', 'stream', 'phone', 'push', 'pwa', 'passkey'], true)) {
                 throw new \Core\Exceptions\CoreException("Unknown frasm_head() feature '{$feature}'.");
             }
 

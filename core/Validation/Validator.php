@@ -66,6 +66,7 @@ class Validator
         'array'         => 'The :attribute must be an array.',
         'email'         => 'The :attribute must be a valid email address.',
         'url'           => 'The :attribute must be a valid URL.',
+        'phone'         => 'The :attribute must be a valid telephone number.',
         'ip'            => 'The :attribute must be a valid IP address.',
         'ipv4'          => 'The :attribute must be a valid IPv4 address.',
         'ipv6'          => 'The :attribute must be a valid IPv6 address.',
@@ -711,6 +712,19 @@ class Validator
     protected function validateEmail(string $field, mixed $value, array $parameters, bool $numeric): bool
     {
         return is_string($value) && filter_var($value, FILTER_VALIDATE_EMAIL, FILTER_FLAG_EMAIL_UNICODE) !== false;
+    }
+
+    /**
+     * @brief Rule 'phone': a telephone number (Core\Support\Phone – national or international, any spacing).
+     * @param string $field Field name.
+     * @param mixed $value Value.
+     * @param list<string> $parameters Parameters.
+     * @param bool $numeric Numeric context.
+     * @return bool
+     */
+    protected function validatePhone(string $field, mixed $value, array $parameters, bool $numeric): bool
+    {
+        return is_string($value) && \Core\Support\Phone::isValid($value);
     }
 
     /**
