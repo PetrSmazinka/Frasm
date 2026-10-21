@@ -80,6 +80,9 @@ Docker see [Scheduled tasks](#docker-1).
 ### Apache
 
 Point the document root to `public/`; the bundled `.htaccess` routes every request to `public/index.php`.
+It also refuses to serve secrets and internals that might land in `public/` by mistake (dot files, keys and
+certificates such as `.pem`/`.key`, `.env`/`.ini`, database dumps, logs, backups). Keep secrets in `config/local.php`
+or `storage/`, never in `public/` or `app/Assets/` (assets are served only from an allowlist of types).
 
 ```apache
 <VirtualHost *:80>

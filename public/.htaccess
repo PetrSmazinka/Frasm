@@ -1,5 +1,12 @@
 Options -Indexes
 
+# Secrets and internals are never served, even when one lands in public/ by mistake: dot files, keys and
+# certificates, environment and configuration files, database dumps, logs and backups. Secrets belong to
+# config/local.php or storage/ (outside public/); Assets are served by Core\Http\AssetServer from an allowlist.
+<FilesMatch "(^\.|\.(pem|key|crt|csr|p12|pfx|jks|env|ini|conf|sql|sqlite|db|log|bak|old|orig|swp|dist)$)">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
