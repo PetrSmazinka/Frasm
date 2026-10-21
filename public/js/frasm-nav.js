@@ -659,11 +659,20 @@
         clearCache: () => prefetchCache.clear(),
     };
 
-    // Single initialization hook for application scripts, fired for the first page too
-    const initialLoad = () => dispatch('frasm:load', { url: location.href });
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialLoad, { once: true });
-    } else {
+    // Single initialization hook for application scripts, fired for the first page too – once the deferred scripts
+    // after this one have run (they execute while the document is still "interactive", before DOMContentLoaded, and
+    // would miss an event fired now); a script added after the page loaded fires it at once
+    let initialised = false;
+    const initialLoad = () => {
+        if (!initialised) {
+            initialised = true;
+            dispatch('frasm:load', { url: location.href });
+        }
+    };
+    if (document.readyState === 'complete') {
         initialLoad();
+    } else {
+        document.addEventListener('DOMContentLoaded', initialLoad, { once: true });
+        window.addEventListener('load', initialLoad, { once: true });
     }
 })();
