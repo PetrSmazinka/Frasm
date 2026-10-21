@@ -53,6 +53,11 @@ class DB
     protected string $database = '';
 
     /**
+     * @var int Depth of the nested transactional() calls (0 = none running).
+     */
+    private int $transactionDepth = 0;
+
+    /**
      * @var array<string, static> Open connections keyed by class and connection name (singleton subclassing).
      */
     private static array $instances = [];
@@ -413,7 +418,9 @@ class DB
     /**
      * @brief Executes a callback within a managed transaction.
      *
-     * Automatically commits on success and rolls back when an unhandled throwable is raised.
+     * Automatically commits on success and rolls back when an unhandled throwable is raised. Calls nest: an inner
+     * transactional() joins the outer transaction (MySQL would commit it on a second BEGIN), so the outermost one
+     * commits everything or, when anything inside throws, rolls everything back.
      *
      * @template T
      * @param callable(self): T $callback Action to execute within transaction scope.
@@ -422,11 +429,25 @@ class DB
      */
     public function transactional(callable $callback): mixed
     {
+        if ($this->transactionDepth > 0) {
+            $this->transactionDepth++;
+            try {
+                return $callback($this);
+            } finally {
+                $this->transactionDepth--;
+            }
+        }
+
         $this->begin();
+        $this->transactionDepth = 1;
         try {
-            $result =$callback($this);$this->commit();
+            $result = $callback($this);
+            $this->transactionDepth = 0;
+            $this->commit();
             return $result;
-        } catch (Throwable $e) {$this->rollback();
+        } catch (Throwable $e) {
+            $this->transactionDepth = 0;
+            $this->rollback();
             throw $e;
         }
     }

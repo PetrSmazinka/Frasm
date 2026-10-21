@@ -797,7 +797,8 @@ Migrations of a connection go to `database/migrations/<connection>/` (those dire
 belong to the default connection) and every database tracks its own migrations, so it can be backed up and
 restored on its own. `make migrate` runs all connections; `db:rollback`, `db:wipe` and `db:reset` take
 `ARGS=--connection=blog`. Validation rules name the connection as `unique:blog.blog_posts,slug`.
-Transactions and foreign keys stay within one connection.
+Transactions and foreign keys stay within one connection. `transactional()` calls nest: an inner one joins the
+outer transaction, which commits everything or rolls everything back.
 
 ## Command-line interface
 
