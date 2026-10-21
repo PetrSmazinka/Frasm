@@ -23,6 +23,8 @@
  *
  * JS API (window.Frasm.nav): visit(url, options), prefetch(url), clearCache().
  * Events on document: frasm:before-visit (cancelable), frasm:before-render, frasm:load, frasm:frame-load.
+ * frasm:load fires for the first page too and after the new page's head scripts have run, so page scripts
+ * initialise on it alone (DOMContentLoaded does not fire again after a swap).
  */
 (() => {
     'use strict';
@@ -36,7 +38,7 @@
     const PREFETCH_TTL_MS = 10000;
     const PREFETCH_HOVER_MS = 65;
     const PREFETCH_MAX = 20;
-    const STYLESHEET_TIMEOUT_MS = 3000;
+    const ASSET_TIMEOUT_MS = 3000;
     const EXECUTABLE_SCRIPT = /^(|module|text\/javascript|application\/javascript|text\/ecmascript|application\/ecmascript)$/i;
 
     /** @type {Map<string, {time: number, promise: Promise<object|null>}>} */
@@ -223,17 +225,18 @@
     /**
      * @brief Resolves when a stylesheet link has loaded (or failed, or timed out).
      */
-    function stylesheetLoaded(link) {
+    function assetLoaded(element) {
         return new Promise((resolve) => {
             const finish = () => resolve();
-            link.addEventListener('load', finish, { once: true });
-            link.addEventListener('error', finish, { once: true });
-            setTimeout(finish, STYLESHEET_TIMEOUT_MS);
+            element.addEventListener('load', finish, { once: true });
+            element.addEventListener('error', finish, { once: true });
+            setTimeout(finish, ASSET_TIMEOUT_MS);
         });
     }
 
     /**
-     * @brief Adds new head elements (awaiting stylesheets) and returns a callback removing stale ones.
+     * @brief Adds new head elements (awaiting stylesheets and external scripts, so that frasm:load reaches the scripts
+     *        of the new page) and returns a callback removing stale ones.
      */
     async function mergeHead(newHead) {
         const key = (el) => el.outerHTML;
@@ -249,8 +252,9 @@
             }
 
             const node = element.tagName === 'SCRIPT' ? cloneScript(element) : document.importNode(element, true);
-            if (node.tagName === 'LINK' && /(^|\s)stylesheet(\s|$)/i.test(node.getAttribute('rel') || '')) {
-                pending.push(stylesheetLoaded(node));
+            if ((node.tagName === 'LINK' && /(^|\s)stylesheet(\s|$)/i.test(node.getAttribute('rel') || ''))
+                || (node.tagName === 'SCRIPT' && node.src && EXECUTABLE_SCRIPT.test(node.type || ''))) {
+                pending.push(assetLoaded(node));
             }
             document.head.appendChild(node);
         }
