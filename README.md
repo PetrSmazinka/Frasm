@@ -311,7 +311,8 @@ Your CSS and JavaScript belong to `app/Assets` – `public/` is the framework's.
 
 `asset()` adds a version derived from the file's modification time (`/assets/css/app.css?v=…`), so browsers
 cache the file for a year and fetch it again only after it changes. Assets are served before the framework
-boots (no session, routing or database work); only common web file types are served. `data-frasm-track`
+boots (no session, routing or database work); only common web file types are served (styles, scripts, images,
+fonts, audio: mp3, ogg, wav, m4a). `data-frasm-track`
 makes a deployment of changed assets reload open pages instead of mixing old and new code.
 
 ### Live components

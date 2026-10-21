@@ -51,6 +51,10 @@ final class AssetServer
         'woff'  => 'font/woff',
         'woff2' => 'font/woff2',
         'ttf'   => 'font/ttf',
+        'mp3'   => 'audio/mpeg',
+        'ogg'   => 'audio/ogg',
+        'wav'   => 'audio/wav',
+        'm4a'   => 'audio/mp4',
     ];
 
     /**
