@@ -111,10 +111,8 @@ class Auth
 
         if ($identity->stamp !== null) {
             $stored = Session::get(self::SESSION_STAMP);
-            if (!is_string($stored)) {
-                // Sessions started before stamps were recorded at login
-                Session::set(self::SESSION_STAMP, $identity->stamp);
-            } elseif (!hash_equals($stored, $identity->stamp)) {
+            // Every sign-in records the stamp: a session without it was not made by a sign-in here
+            if (!is_string($stored) || !hash_equals($stored, $identity->stamp)) {
                 self::logout();
                 return;
             }
@@ -372,6 +370,7 @@ class Auth
         Session::regenerate(true);
         Session::set(self::SESSION_USER_ID, $identity->id);
         Session::set(self::SESSION_ROLES, $identity->roles);
+        self::storeStamp($identity->id);
 
         self::issueRememberToken($identity->id);
 

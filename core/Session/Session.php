@@ -38,6 +38,8 @@ class Session
      * HttpOnly, SameSite and the Secure flag on HTTPS. Cookie name and SameSite policy can be
      * configured via `session.name` and `session.same_site`; `session.save_path` moves session
      * files elsewhere (e.g. tmpfs) and enables PHP's session garbage collection for that path.
+     * A session belongs to this application (a mark derived from app.key): applications sharing the session storage
+     * of a server cannot use each other's sessions – an ID of another one starts empty under a new ID.
      *
      * @return void
      * @throws CoreException When the session was released in this request (release()).
@@ -85,6 +87,33 @@ class Session
         }
 
         session_start();
+        self::claim();
+    }
+
+    /**
+     * @var string Session key of the mark of the application.
+     */
+    private const OWNER_KEY = '_frasm_app';
+
+    /**
+     * @brief Keeps only a session of this application: one made by another (the same storage on the server, e.g. the
+     *        default directory of PHP) is emptied and gets a new ID, so its data (a signed-in user) are never trusted.
+     *
+     * @return void
+     */
+    private static function claim(): void
+    {
+        $owner = hash_hmac('sha256', 'frasm:session-owner', (string)Config::get('app.key', '') . '|' . (string)Config::get('app.name', ''));
+        if (($_SESSION[self::OWNER_KEY] ?? null) === $owner) {
+            return;
+        }
+        if ($_SESSION !== []) {
+            $_SESSION = [];
+            if (!headers_sent()) {
+                session_regenerate_id(true);
+            }
+        }
+        $_SESSION[self::OWNER_KEY] = $owner;
     }
 
     /**
