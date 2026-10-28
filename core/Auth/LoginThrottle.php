@@ -14,13 +14,16 @@ use Core\RateLimit\RateLimiter;
 
 /**
  * @class LoginThrottle
- * @brief Counts failed attempts to sign in (`auth.login_attempts`: max per account, per_ip, window in seconds) and blocks
- *        further ones until the window passes; a successful sign-in clears the count of the account.
+ * @brief Counts failed attempts to sign in (`auth.login_attempts`: max per account from one address, per_ip, window in
+ *        seconds) and blocks further ones until the window passes; a successful sign-in clears the count of the account.
+ *
+ * The account is counted per address (max) – somebody else's failures do not lock the owner out – and over all
+ * addresses with a higher limit (ACCOUNT_FACTOR × max) against guessing from many addresses.
  *
  * @code
  * if (($wait = $throttle->blocked($identifier, $request->ip())) !== null) { ... "try again in $wait s" ... }
  * if (!$valid) { $throttle->failed($identifier, $request->ip()); ... }
- * $throttle->succeeded($identifier);
+ * $throttle->succeeded($identifier, 'login', $request->ip());
  * @endcode
  *
  * The account is the identifier as typed (user name or e-mail, case-insensitive), so it holds also for accounts that do
@@ -28,6 +31,11 @@ use Core\RateLimit\RateLimiter;
  */
 class LoginThrottle
 {
+    /**
+     * @var int Failures of an account over all addresses allowed, as a multiple of the limit from one address.
+     */
+    private const ACCOUNT_FACTOR = 10;
+
     /**
      * @brief LoginThrottle constructor.
      *
@@ -48,7 +56,8 @@ class LoginThrottle
     public function blocked(string $identifier, string $ip, string $action = 'login'): ?int
     {
         [$max, $perIp] = self::limits();
-        foreach ([[self::accountKey($identifier, $action), $max], ["{$action}:ip:{$ip}", $perIp]] as [$key, $limit]) {
+        foreach ([[self::accountKey($identifier, $action) . ":ip:{$ip}", $max], [self::accountKey($identifier, $action), $max * self::ACCOUNT_FACTOR],
+            ["{$action}:ip:{$ip}", $perIp]] as [$key, $limit]) {
             if ($this->limiter->tooManyAttempts($key, $limit)) {
                 return max(1, $this->limiter->availableIn($key));
             }
@@ -68,6 +77,7 @@ class LoginThrottle
     public function failed(string $identifier, string $ip, string $action = 'login'): void
     {
         $window = self::limits()[2];
+        $this->limiter->hit(self::accountKey($identifier, $action) . ":ip:{$ip}", $window);
         $this->limiter->hit(self::accountKey($identifier, $action), $window);
         $this->limiter->hit("{$action}:ip:{$ip}", $window);
     }
@@ -77,11 +87,15 @@ class LoginThrottle
      *
      * @param string $identifier User name or e-mail as typed.
      * @param string $action Kind of attempt.
+     * @param string|null $ip Address of the client (its count of the account is cleared too).
      * @return void
      */
-    public function succeeded(string $identifier, string $action = 'login'): void
+    public function succeeded(string $identifier, string $action = 'login', ?string $ip = null): void
     {
         $this->limiter->clear(self::accountKey($identifier, $action));
+        if ($ip !== null) {
+            $this->limiter->clear(self::accountKey($identifier, $action) . ":ip:{$ip}");
+        }
     }
 
     /**
