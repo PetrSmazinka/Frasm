@@ -300,6 +300,14 @@ Views are plain PHP templates in `app/Views`. Put `<?= frasm_head() ?>` in the `
 links and forms then load without a full page reload, with a progress bar and working back/forward
 buttons. Use `data-frasm-nav="false"` to opt a link out, or `data-frasm-target="#id"` to replace just one element.
 
+**Autosave.** Add `data-frasm-autosave` to a POST form and it saves itself when a field changes (text fields 0.8 s
+after typing stops; Enter submits the same way). Nothing is navigated or re-rendered, so the page, scroll and focus stay
+put; the result shows in a small fixed notice, or in an element `[data-frasm-autosave-status]` inside the form. The
+controller action is the same as for a save button (validate, save, `flash()`, `redirect()`): `AutosaveMiddleware`
+(global) turns the redirect of a request with `X-Frasm-Autosave: 1` into `{"ok": true|false, "message": …}` and takes the
+flash message, so it does not show up on the next page. An `error` flash or a 422 marks the save as failed. A field with
+`data-frasm-autosave="false"` does not trigger a save; an incomplete form (HTML5 validation) is not sent.
+
 ### Stylesheets and scripts
 
 Your CSS and JavaScript belong to `app/Assets` – `public/` is the framework's. Link them with `asset()`:

@@ -14,6 +14,11 @@
  *   data-frasm-permanent + id     element kept (not re-rendered) across navigations, e.g. a player
  *   data-frasm-track              on <script>/<link> in <head>: a changed URL forces a full reload (new deploy)
  *   data-frasm-prefetch="false"   disable hover prefetch for a link
+ *   data-frasm-autosave           on a POST form: saves itself when a field changes (text: 0.8 s after typing stops),
+ *                                 without navigation, scroll or re-render; the server action is the one of the button
+ *                                 (redirect + flash become {ok, message} through AutosaveMiddleware). A field with
+ *                                 data-frasm-autosave="false" does not trigger it; [data-frasm-autosave-status]
+ *                                 inside the form shows the result instead of the fixed notice.
  *   data-frasm-eval="false"       on a <script> in a swapped body: do not execute it
  *   <meta name="frasm-prefetch" content="off">        disable hover prefetch globally
  *   <meta name="frasm-view-transition" content="on">  animate swaps with the View Transitions API
@@ -582,7 +587,10 @@
     const style = document.createElement('style');
     style.textContent = '.frasm-progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:2147483647;'
         + 'pointer-events:none;background:var(--frasm-progress-color,#6366f1);transition:width 8s cubic-bezier(.1,.7,.1,1),opacity .3s}'
-        + '.frasm-progress--running{width:85%}.frasm-progress--done{width:100%;opacity:0;transition:width .2s,opacity .3s .1s}';
+        + '.frasm-progress--running{width:85%}.frasm-progress--done{width:100%;opacity:0;transition:width .2s,opacity .3s .1s}'
+        + '.frasm-autosave{position:fixed;right:16px;bottom:16px;z-index:2147483646;padding:6px 12px;border-radius:6px;'
+        + 'font:14px/1.3 system-ui,sans-serif;background:#1f2937;color:#fff;opacity:0;pointer-events:none;transition:opacity .2s}'
+        + '.frasm-autosave--visible{opacity:.92}.frasm-autosave[data-failed]{background:#b91c1c}';
     document.head.appendChild(style);
 
     // --- Event wiring ---------------------------------------------------------------------------
@@ -617,6 +625,135 @@
             return; // Double submission guard
         }
         submitForm(form, event.submitter);
+    });
+
+    // --- Autosave: form[data-frasm-autosave] ----------------------------------------------------
+    // The form saves itself when a field changes (text fields: shortly after typing stops). There is no button to
+    // press and the page stays as it is – no navigation, no scroll, no re-render, so nothing jumps; the result is
+    // shown in a small fixed notice (or in an element [data-frasm-autosave-status] inside the form). The server side
+    // is the same action as for the button: AutosaveMiddleware turns its redirect + flash into {ok, message}.
+    const AUTOSAVE_DELAY_MS = 800;
+    const AUTOSAVE_TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]):not([type=hidden]), textarea';
+    const autosaveState = new WeakMap();
+    let autosaveNotice = null;
+    let autosaveNoticeTimer = null;
+
+    function autosaveSay(form, text, failed) {
+        const slot = form.querySelector('[data-frasm-autosave-status]');
+        if (slot) {
+            slot.textContent = text;
+            slot.toggleAttribute('data-failed', !!failed);
+            return;
+        }
+        if (!autosaveNotice) {
+            autosaveNotice = document.createElement('div');
+            autosaveNotice.className = 'frasm-autosave';
+            autosaveNotice.setAttribute('role', 'status');
+            autosaveNotice.setAttribute('aria-live', 'polite');
+            document.body.appendChild(autosaveNotice);
+        }
+        clearTimeout(autosaveNoticeTimer);
+        autosaveNotice.textContent = text;
+        autosaveNotice.toggleAttribute('data-failed', !!failed);
+        autosaveNotice.classList.toggle('frasm-autosave--visible', text !== '');
+        if (text !== '' && text !== 'Ukládám…') {
+            autosaveNoticeTimer = setTimeout(() => autosaveNotice.classList.remove('frasm-autosave--visible'), failed ? 6000 : 1800);
+        }
+    }
+
+    async function autosaveSend(form) {
+        const state = autosaveState.get(form) || {};
+        autosaveState.set(form, state);
+        clearTimeout(state.timer);
+        if (state.sending) {
+            state.again = true;
+            return;
+        }
+        // An incomplete form is not saved (and no bubble is opened under the user's hands); it is saved once it is valid
+        if (!form.checkValidity()) {
+            autosaveSay(form, 'Vyplňte povinná pole', true);
+            return;
+        }
+        state.sending = true;
+        autosaveSay(form, 'Ukládám…', false);
+        prefetchCache.clear();
+        let message = null;
+        try {
+            const response = await fetch(form.getAttribute('action') || location.href, {
+                method: 'POST',
+                body: new FormData(form),
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Frasm-Autosave': '1', 'X-CSRF-TOKEN': meta('csrf-token') },
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || payload?.ok === false) {
+                const errors = payload?.errors ? Object.values(payload.errors).flat() : [];
+                message = errors[0] || payload?.message || 'Neuloženo';
+            }
+        } catch (e) {
+            message = 'Neuloženo – chyba spojení';
+        }
+        state.sending = false;
+        if (message !== null) {
+            autosaveSay(form, String(message), true);
+        } else if (state.again) {
+            state.again = false;
+            autosaveSend(form);
+            return;
+        } else {
+            autosaveSay(form, 'Uloženo', false);
+            form.dispatchEvent(new CustomEvent('frasm:autosaved', { bubbles: true }));
+        }
+    }
+
+    function autosaveSchedule(form, immediately) {
+        const state = autosaveState.get(form) || {};
+        autosaveState.set(form, state);
+        clearTimeout(state.timer);
+        if (immediately) {
+            autosaveSend(form);
+        } else {
+            state.timer = setTimeout(() => autosaveSend(form), AUTOSAVE_DELAY_MS);
+        }
+    }
+
+    document.addEventListener('input', (event) => {
+        const form = event.target.closest?.('form[data-frasm-autosave]');
+        if (form && event.target.matches?.(AUTOSAVE_TEXT)) {
+            autosaveSchedule(form, false);
+        }
+    });
+    document.addEventListener('change', (event) => {
+        const form = event.target.closest?.('form[data-frasm-autosave]');
+        if (form && !event.target.matches?.('[data-frasm-autosave="false"]')) {
+            autosaveSchedule(form, true);
+        }
+    });
+    // Enter in a field, or a leftover button: the same save, not a navigation
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (form instanceof HTMLFormElement && form.hasAttribute('data-frasm-autosave')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            autosaveSchedule(form, true);
+        }
+    }, true);
+    // Leaving the page with a text not saved yet: send it (keepalive survives the unload)
+    window.addEventListener('pagehide', () => {
+        document.querySelectorAll('form[data-frasm-autosave]').forEach((form) => {
+            const state = autosaveState.get(form);
+            if (state?.timer && form.checkValidity()) {
+                clearTimeout(state.timer);
+                state.timer = null;
+                try {
+                    fetch(form.getAttribute('action') || location.href, {
+                        method: 'POST', body: new URLSearchParams(Array.from(new FormData(form), ([k, v]) => [k, typeof v === 'string' ? v : ''])),
+                        credentials: 'same-origin', keepalive: true,
+                        headers: { Accept: 'application/json', 'X-Frasm-Autosave': '1', 'X-CSRF-TOKEN': meta('csrf-token') },
+                    });
+                } catch (e) { /* the page is going away anyway */ }
+            }
+        });
     });
 
     let hoverTimer = null;

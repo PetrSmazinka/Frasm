@@ -18,6 +18,7 @@ return [
         \Core\Http\Middleware\CorsMiddleware::class,
         \Core\Http\Middleware\AuthenticateMiddleware::class,
         \Core\Http\Middleware\CsrfMiddleware::class,
+        \Core\Http\Middleware\AutosaveMiddleware::class,
     ],
 
     /*
