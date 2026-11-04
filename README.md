@@ -308,7 +308,10 @@ those, so a page that does not navigate with `nav` still gets toasts and autosav
 the content down. Print them once in the layout: `<?= frasm_flash($flash_messages ?? []) ?>` (`BaseController::view()`
 provides `$flash_messages`). Without JavaScript they stay a plain list. From JavaScript: `Frasm.toast(text, {type:
 'success'|'error'|'info', key, duration})` (a toast with the same `key` is replaced in place). Colours and radius:
-`--frasm-toast-bg`, `--frasm-toast-color`, `--frasm-toast-radius`, `--frasm-toast-success|error|info`.
+`--frasm-toast-bg`, `--frasm-toast-color`, `--frasm-toast-radius`, `--frasm-toast-success|error|info`. The look is light or
+dark like the page: it follows the page's `color-scheme` (Bootstrap sets it with `data-bs-theme`; `data-theme` and
+`data-bs-theme="light|dark"` on `<html>` are honoured too). A dark-only app sets `color-scheme: dark` on `:root`, a
+light-only one nothing; an app with the choice system / light / dark sets the resolved value on `<html>`.
 A script that adds its own `<style>` or `<link>` to `<head>` marks it `data-frasm-permanent`, otherwise `frasm-nav.js`
 removes it with the next navigation (the head is merged with the one of the new page).
 

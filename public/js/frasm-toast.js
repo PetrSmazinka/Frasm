@@ -13,7 +13,8 @@
  * Markup API (printed by frasm_flash()): an element [data-frasm-flash] with children [data-type]; read once, on every
  * page (frasm:load, also after navigations of frasm-nav.js, and frasm:frame-load) and removed.
  *
- * Look: custom properties --frasm-toast-bg, --frasm-toast-color, --frasm-toast-radius, --frasm-toast-success,
+ * Look: light or dark like the page – it follows the `color-scheme` of the page (Bootstrap sets it with data-bs-theme; the
+ * attributes data-theme / data-bs-theme="light|dark" on <html> are honoured too). Custom properties --frasm-toast-bg, --frasm-toast-color, --frasm-toast-radius, --frasm-toast-success,
  * --frasm-toast-error, --frasm-toast-info (set them on :root). A click closes a toast; the pointer over it holds the timer.
  */
 (() => {
@@ -34,11 +35,16 @@
     style.textContent = '.frasm-toasts{position:fixed;right:16px;bottom:16px;z-index:2147483646;display:flex;flex-direction:column;'
         + 'gap:8px;width:min(380px,calc(100vw - 32px));pointer-events:none}'
         + '.frasm-toast{pointer-events:auto;cursor:pointer;padding:10px 14px;border-radius:var(--frasm-toast-radius,8px);'
-        + 'border-left:4px solid var(--frasm-toast-info,#3b82f6);background:var(--frasm-toast-bg,#1f2937);'
-        + 'color:var(--frasm-toast-color,#fff);font:14px/1.4 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.28);'
+        + 'border-left:4px solid var(--frasm-toast-info,#3b82f6);background:var(--frasm-toast-bg,#fff);'
+        + 'color:var(--frasm-toast-color,#1f2937);font:14px/1.4 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.22),0 0 0 1px rgba(127,127,127,.2);'
         + 'overflow-wrap:anywhere;animation:frasm-toast-in .18s ease-out}'
         + '.frasm-toast[data-type=success]{border-left-color:var(--frasm-toast-success,#22c55e)}'
         + '.frasm-toast[data-type=error]{border-left-color:var(--frasm-toast-error,#ef4444)}'
+        // The look follows the colour scheme of the page: the toasts are dark where the page is dark (see the README)
+        + ':root[data-theme=dark] .frasm-toasts,:root[data-bs-theme=dark] .frasm-toasts{color-scheme:dark}'
+        + ':root[data-theme=light] .frasm-toasts,:root[data-bs-theme=light] .frasm-toasts{color-scheme:light}'
+        + '@supports (color:light-dark(#000,#fff)){.frasm-toast{background:var(--frasm-toast-bg,light-dark(#fff,#1f2937));'
+        + 'color:var(--frasm-toast-color,light-dark(#1f2937,#f3f4f6))}}'
         + '.frasm-toast--leaving{opacity:0;transform:translateY(6px);transition:opacity .18s,transform .18s}'
         + '@keyframes frasm-toast-in{from{opacity:0;transform:translateY(6px)}}'
         + '@media (prefers-reduced-motion:reduce){.frasm-toast{animation:none}.frasm-toast--leaving{transition:none}}';
