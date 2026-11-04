@@ -20,7 +20,9 @@ use Core\Session\Session;
  *
  * The controller stays the same as for the button: it validates, saves, flashes and redirects. For a request with
  * `X-Frasm-Autosave: 1` the redirect is not followed (that would render a whole page nobody looks at) and the flash
- * message is taken from the session, so it does not appear on the next page: an `error` flash means the save failed.
+ * messages this request set are taken from the session (all of them, whatever their type), so they do not appear on
+ * the next page; flashes left by earlier requests stay for the page that shows them. An `error` flash means the save
+ * failed; the message is the `error`, `success` or `info` flash (in this order), or another one set by the request.
  * Validation errors (422 JSON, the request asks for JSON) and other errors are left as they are.
  */
 class AutosaveMiddleware implements MiddlewareInterface
@@ -34,15 +36,33 @@ class AutosaveMiddleware implements MiddlewareInterface
      */
     public function process(Request $request, RequestHandlerInterface $next): Response
     {
+        if ($request->header('X-Frasm-Autosave') !== '1') {
+            return $next->handle($request);
+        }
+
+        $before = Session::flashes();
         $response = $next->handle($request);
-        if ($request->header('X-Frasm-Autosave') !== '1' || $response->getStatusCode() < 300 || $response->getStatusCode() > 399) {
+        if ($response->getStatusCode() < 300 || $response->getStatusCode() > 399) {
             return $response;
         }
 
-        $error = Session::getFlash('error');
-        $message = $error ?? Session::getFlash('success');
-        Session::getFlash('info');
+        // Only the flashes of this request (new or changed): an earlier one still waits for its page
+        $flashes = [];
+        foreach (Session::flashes() as $key => $value) {
+            if (!array_key_exists($key, $before) || $before[$key] !== $value) {
+                $flashes[(string)$key] = Session::getFlash((string)$key);
+            }
+        }
 
-        return Response::json(['ok' => $error === null, 'message' => is_string($message) ? $message : null], 200, ['Cache-Control' => 'no-store']);
+        $failed = isset($flashes['error']);
+        $message = null;
+        foreach ([...['error', 'success', 'info'], ...array_keys($flashes)] as $key) {
+            if (is_string($flashes[$key] ?? null) && $flashes[$key] !== '') {
+                $message = $flashes[$key];
+                break;
+            }
+        }
+
+        return Response::json(['ok' => !$failed, 'message' => $message], 200, ['Cache-Control' => 'no-store']);
     }
 }

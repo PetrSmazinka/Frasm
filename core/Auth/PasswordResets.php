@@ -89,13 +89,20 @@ class PasswordResets
             return null;
         }
         $db = DB::getInstance();
-        $db->transactional(function (DB $db) use ($userId, $password, $token): void {
-            $db->query('UPDATE `frasm_password_resets` SET `used_at` = NOW() WHERE `token_hash` = ?', [hash('sha256', $token)]);
+        $done = $db->transactional(function (DB $db) use ($userId, $password, $token): bool {
+            // Claimed once: of two requests with the same link at the same time only one sets the password
+            $db->query('UPDATE `frasm_password_resets` SET `used_at` = NOW() WHERE `token_hash` = ? AND `used_at` IS NULL AND `expires_at` > NOW()',
+                [hash('sha256', $token)]);
+            if ($db->affectedRows() !== 1) {
+                return false;
+            }
             $db->query('UPDATE `frasm_users` SET `password_hash` = ? WHERE `id` = ?', [password_hash($password, PASSWORD_DEFAULT), $userId]);
             $db->query('DELETE FROM `frasm_remember_tokens` WHERE `user_id` = ?', [$userId]);
+
+            return true;
         });
 
-        return $userId;
+        return $done ? $userId : null;
     }
 
     /**

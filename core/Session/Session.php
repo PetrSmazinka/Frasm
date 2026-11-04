@@ -281,6 +281,20 @@ class Session
     }
 
     /**
+     * @brief Returns all flash messages waiting to be shown, without clearing them.
+     *
+     * @return array<string, mixed> Flash identifier => value (empty without a session).
+     */
+    public static function flashes(): array
+    {
+        if (!self::resume()) {
+            return [];
+        }
+
+        return is_array($_SESSION[self::FLASH_KEY] ?? null) ? $_SESSION[self::FLASH_KEY] : [];
+    }
+
+    /**
      * @brief Checks if a specific flash key exists without clearing it.
      *
      * @param string $key Flash identifier.

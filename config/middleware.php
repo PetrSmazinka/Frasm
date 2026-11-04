@@ -15,6 +15,8 @@ return [
      * CorsMiddleware must stay global because preflight OPTIONS requests match no route.
      */
     'global' => [
+        // First: it sees the response last and keeps the headers the others set (framing, nosniff, referrer, HSTS)
+        \Core\Http\Middleware\SecurityHeadersMiddleware::class,
         \Core\Http\Middleware\CorsMiddleware::class,
         \Core\Http\Middleware\AuthenticateMiddleware::class,
         \Core\Http\Middleware\CsrfMiddleware::class,

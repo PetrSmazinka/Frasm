@@ -305,8 +305,15 @@ after typing stops; Enter submits the same way). Nothing is navigated or re-rend
 put; the result shows in a small fixed notice, or in an element `[data-frasm-autosave-status]` inside the form. The
 controller action is the same as for a save button (validate, save, `flash()`, `redirect()`): `AutosaveMiddleware`
 (global) turns the redirect of a request with `X-Frasm-Autosave: 1` into `{"ok": true|false, "message": …}` and takes the
-flash message, so it does not show up on the next page. An `error` flash or a 422 marks the save as failed. A field with
-`data-frasm-autosave="false"` does not trigger a save; an incomplete form (HTML5 validation) is not sent.
+flash messages that request set (of any type), so they do not show up on the next page; flashes of earlier requests stay.
+An `error` flash or a 422 marks the save as failed, and so does a redirect that reaches the browser (the save is sent
+with `redirect: 'manual'`, so a sign-in page is never taken for success – keep `AutosaveMiddleware` in
+`middleware.global`). A field with `data-frasm-autosave="false"` does not trigger a save; an incomplete form (HTML5
+validation) is not sent. Only a form whose `action` is a URL of the application saves itself (the CSRF token goes with
+it); the URL is the one of the page the change was made on, and a pending save is sent before a Frasm navigation and,
+with `keepalive`, when the page is left. A submit button of its own – with a `name`, `formaction`, `formmethod` or
+`data-frasm-autosave="false"` (e.g. Delete) – submits the form as usual. Every save sends the whole form, a chosen file
+too; a rich-text editor has to put its value into a field and dispatch `change` on it (contenteditable is not watched).
 
 ### Stylesheets and scripts
 
@@ -864,6 +871,9 @@ A systemd unit for a permanently running queue worker is shown in [docs/raspberr
 - `make cache` after every deployment
 - A queue worker (systemd service or cron) if you use the queue or queued push notifications
 - `php bin/frasm prune` daily from cron (see [Automation](#automation))
+- `SecurityHeadersMiddleware` first in `middleware.global` (it is in the default config): no framing by other sites,
+  `nosniff`, a referrer policy and HSTS over HTTPS
+- Behind a reverse proxy: its address in `app.trusted_proxies` (client IP, HTTPS detection, secure cookies, passkeys)
 
 Running on a Raspberry Pi? See [docs/raspberry-pi.md](docs/raspberry-pi.md) for SD-card friendly settings.
 

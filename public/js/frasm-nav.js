@@ -650,6 +650,9 @@
             autosaveNotice.className = 'frasm-autosave';
             autosaveNotice.setAttribute('role', 'status');
             autosaveNotice.setAttribute('aria-live', 'polite');
+        }
+        // A navigation replaced the body the notice was in
+        if (!autosaveNotice.isConnected) {
             document.body.appendChild(autosaveNotice);
         }
         clearTimeout(autosaveNoticeTimer);
@@ -661,10 +664,34 @@
         }
     }
 
+    const autosaveStateOf = (form) => {
+        let state = autosaveState.get(form);
+        if (!state) {
+            state = { timer: null, sending: false, again: false, dirty: false, url: null };
+            autosaveState.set(form, state);
+        }
+        return state;
+    };
+
+    // The URL a form saves to: only one of this application (the CSRF token is sent with it), else null and the form
+    // is submitted as usual. Taken while the page is shown: a save that runs after a navigation must not go to the
+    // URL of the next page.
+    function autosaveUrl(form) {
+        const url = new URL(form.getAttribute('action') || location.href, location.href);
+        url.hash = '';
+        return isAppUrl(url) ? url : null;
+    }
+
+    // The autosave form a field belongs to (also by its form="…" attribute), or null
+    function autosaveFormOf(field) {
+        const form = field?.form instanceof HTMLFormElement ? field.form : field?.closest?.('form');
+        return form && form.hasAttribute('data-frasm-autosave') && form.getAttribute('data-frasm-autosave') !== 'false' ? form : null;
+    }
+
     async function autosaveSend(form) {
-        const state = autosaveState.get(form) || {};
-        autosaveState.set(form, state);
+        const state = autosaveStateOf(form);
         clearTimeout(state.timer);
+        state.timer = null;
         if (state.sending) {
             state.again = true;
             return;
@@ -674,18 +701,27 @@
             autosaveSay(form, 'Vyplňte povinná pole', true);
             return;
         }
+        const url = state.url || autosaveUrl(form);
+        if (!url) {
+            return;
+        }
         state.sending = true;
+        state.again = false;
+        state.dirty = false;
         autosaveSay(form, 'Ukládám…', false);
         prefetchCache.clear();
         let message = null;
         try {
-            const response = await fetch(form.getAttribute('action') || location.href, {
+            // A redirect is not followed: AutosaveMiddleware answers the action's own redirect, so one reaching the
+            // browser means the save did not get there (e.g. a sign-in page) – following it would look like success
+            const response = await fetch(url.href, {
                 method: 'POST',
                 body: new FormData(form),
                 credentials: 'same-origin',
+                redirect: 'manual',
                 headers: { Accept: 'application/json', 'X-Frasm-Autosave': '1', 'X-CSRF-TOKEN': meta('csrf-token') },
             });
-            const payload = await response.json().catch(() => null);
+            const payload = response.type === 'opaqueredirect' ? null : await response.json().catch(() => null);
             if (!response.ok || payload?.ok === false) {
                 const errors = payload?.errors ? Object.values(payload.errors).flat() : [];
                 message = errors[0] || payload?.message || 'Neuloženo';
@@ -694,12 +730,14 @@
             message = 'Neuloženo – chyba spojení';
         }
         state.sending = false;
-        if (message !== null) {
-            autosaveSay(form, String(message), true);
-        } else if (state.again) {
-            state.again = false;
+        if (state.again) {
+            // Changed while it was being saved: the newer values are sent (also after a failure – they may fix it)
             autosaveSend(form);
             return;
+        }
+        if (message !== null) {
+            state.dirty = true;
+            autosaveSay(form, String(message), true);
         } else {
             autosaveSay(form, 'Uloženo', false);
             form.dispatchEvent(new CustomEvent('frasm:autosaved', { bubbles: true }));
@@ -707,9 +745,11 @@
     }
 
     function autosaveSchedule(form, immediately) {
-        const state = autosaveState.get(form) || {};
-        autosaveState.set(form, state);
+        const state = autosaveStateOf(form);
         clearTimeout(state.timer);
+        state.timer = null;
+        state.dirty = true;
+        state.url = autosaveUrl(form);
         if (immediately) {
             autosaveSend(form);
         } else {
@@ -718,37 +758,62 @@
     }
 
     document.addEventListener('input', (event) => {
-        const form = event.target.closest?.('form[data-frasm-autosave]');
-        if (form && event.target.matches?.(AUTOSAVE_TEXT)) {
+        const form = autosaveFormOf(event.target);
+        if (form && event.target.matches?.(AUTOSAVE_TEXT) && !event.target.matches('[data-frasm-autosave="false"]') && autosaveUrl(form)) {
             autosaveSchedule(form, false);
         }
     });
     document.addEventListener('change', (event) => {
-        const form = event.target.closest?.('form[data-frasm-autosave]');
-        if (form && !event.target.matches?.('[data-frasm-autosave="false"]')) {
+        const form = autosaveFormOf(event.target);
+        if (form && !event.target.matches?.('[data-frasm-autosave="false"]') && autosaveUrl(form)) {
             autosaveSchedule(form, true);
         }
     });
-    // Enter in a field, or a leftover button: the same save, not a navigation
+    // Enter in a field, or a leftover button: the same save, not a navigation. A button of its own (a name, formaction,
+    // formmethod, or data-frasm-autosave="false" – e.g. "Delete") submits the form as usual, without a pending save.
     document.addEventListener('submit', (event) => {
         const form = event.target;
-        if (form instanceof HTMLFormElement && form.hasAttribute('data-frasm-autosave')) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            autosaveSchedule(form, true);
+        if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-frasm-autosave') || form.getAttribute('data-frasm-autosave') === 'false') {
+            return;
         }
+        const submitter = event.submitter;
+        if (!autosaveUrl(form) || (submitter && (submitter.name || submitter.hasAttribute('formaction') || submitter.hasAttribute('formmethod')
+            || submitter.getAttribute('data-frasm-autosave') === 'false'))) {
+            const state = autosaveState.get(form);
+            if (state) {
+                clearTimeout(state.timer);
+                state.timer = null;
+                state.dirty = false;
+            }
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        autosaveSchedule(form, true);
     }, true);
-    // Leaving the page with a text not saved yet: send it (keepalive survives the unload)
+    // A navigation within the application: a pending save is sent now, to the URL of the page it was typed on
+    document.addEventListener('frasm:before-visit', () => {
+        document.querySelectorAll('form[data-frasm-autosave]').forEach((form) => {
+            const state = autosaveState.get(form);
+            if (state?.timer) {
+                autosaveSend(form);
+            }
+        });
+    });
+    // Leaving the page with changes not saved yet: send them (keepalive survives the unload)
     window.addEventListener('pagehide', () => {
         document.querySelectorAll('form[data-frasm-autosave]').forEach((form) => {
             const state = autosaveState.get(form);
-            if (state?.timer && form.checkValidity()) {
+            const url = state?.url || autosaveUrl(form);
+            if ((state?.dirty || state?.again) && url && form.checkValidity()) {
                 clearTimeout(state.timer);
                 state.timer = null;
+                state.dirty = false;
+                state.again = false;
                 try {
-                    fetch(form.getAttribute('action') || location.href, {
+                    fetch(url.href, {
                         method: 'POST', body: new URLSearchParams(Array.from(new FormData(form), ([k, v]) => [k, typeof v === 'string' ? v : ''])),
-                        credentials: 'same-origin', keepalive: true,
+                        credentials: 'same-origin', keepalive: true, redirect: 'manual',
                         headers: { Accept: 'application/json', 'X-Frasm-Autosave': '1', 'X-CSRF-TOKEN': meta('csrf-token') },
                     });
                 } catch (e) { /* the page is going away anyway */ }
