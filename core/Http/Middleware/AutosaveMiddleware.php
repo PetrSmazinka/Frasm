@@ -11,7 +11,7 @@ use Core\Session\Session;
 
 /**
  * @file AutosaveMiddleware.php
- * @brief Answers the saves of forms with data-frasm-autosave (frasm-nav.js) with a short JSON instead of a redirect.
+ * @brief Answers the saves of forms with data-frasm-autosave (frasm-autosave.js) with a short JSON instead of a redirect.
  */
 
 /**

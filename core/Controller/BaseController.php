@@ -46,7 +46,7 @@ abstract class BaseController
      * @brief Renders an HTML view template and returns the rendered buffer.
      *
      * Automatically injects CSRF helpers ($csrf_token, $csrf_field), flash notifications
-     * ($flash_success, $flash_error, $flash_info) and validation feedback ($errors, $old)
+     * ($flash_success, $flash_error, $flash_info, and $flash_messages for frasm_flash()) and validation feedback ($errors, $old)
      * into the view scope.
      *
      * @param string $template View template path relative to the views directory (e.g. 'users/index').
@@ -80,6 +80,11 @@ abstract class BaseController
         $data['flash_success'] = Session::getFlash('success');
         $data['flash_error'] = Session::getFlash('error');
         $data['flash_info'] = Session::getFlash('info');
+        // The same for frasm_flash(): type => text of the messages that exist
+        $data['flash_messages'] = array_filter(
+            ['success' => $data['flash_success'], 'error' => $data['flash_error'], 'info' => $data['flash_info']],
+            static fn(mixed $text): bool => is_string($text) && $text !== ''
+        );
         $data['errors'] = (array)Session::getFlash('errors', []);
         $data['old'] = (array)Session::getFlash('old', []);
 
@@ -217,6 +222,18 @@ abstract class BaseController
     protected function redirect(string $url, int $status = 302): never
     {
         throw new HttpResponseException(Response::redirect($url, $status));
+    }
+
+    /**
+     * @brief A redirect target taken from a request: a path of this site, or the fallback (never another site).
+     *
+     * @param mixed $value Value from the request (e.g. `$this->input('back')`).
+     * @param string $fallback Path used when the value is not a local path.
+     * @return string
+     */
+    protected function localPath(mixed $value, string $fallback = '/'): string
+    {
+        return \Core\Http\LocalPath::orElse($value, $fallback);
     }
 
     /**

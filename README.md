@@ -300,9 +300,23 @@ Views are plain PHP templates in `app/Views`. Put `<?= frasm_head() ?>` in the `
 links and forms then load without a full page reload, with a progress bar and working back/forward
 buttons. Use `data-frasm-nav="false"` to opt a link out, or `data-frasm-target="#id"` to replace just one element.
 
-**Autosave.** Add `data-frasm-autosave` to a POST form and it saves itself when a field changes (text fields 0.8 s
+**Features.** `frasm_head()` loads the scripts of the features you ask for (default: `nav`, `toast`, `autosave`,
+`live`, `stream`, `phone`, plus `push`, `pwa`, `passkey` when enabled); `frasm_head(['toast', 'autosave'])` loads just
+those, so a page that does not navigate with `nav` still gets toasts and autosave.
+
+**Toasts.** Flash messages are shown as toasts in the corner of the page (`frasm-toast.js`) instead of banners that push
+the content down. Print them once in the layout: `<?= frasm_flash($flash_messages ?? []) ?>` (`BaseController::view()`
+provides `$flash_messages`). Without JavaScript they stay a plain list. From JavaScript: `Frasm.toast(text, {type:
+'success'|'error'|'info', key, duration})` (a toast with the same `key` is replaced in place). Colours and radius:
+`--frasm-toast-bg`, `--frasm-toast-color`, `--frasm-toast-radius`, `--frasm-toast-success|error|info`.
+
+**Redirects to a path from a request.** Never check it by hand: `$this->localPath($this->input('back'), '/fallback')` in a
+controller, or `Core\Http\LocalPath::from($value)` (null when it is not a path of this site: `//host`, `/\host`,
+backslashes and control characters are refused). `Auth::safeReturnPath()` uses the same.
+
+**Autosave** (`frasm-autosave.js`, independent of `nav`). Add `data-frasm-autosave` to a POST form and it saves itself when a field changes (text fields 0.8 s
 after typing stops; Enter submits the same way). Nothing is navigated or re-rendered, so the page, scroll and focus stay
-put; the result shows in a small fixed notice, or in an element `[data-frasm-autosave-status]` inside the form. The
+put; the result shows as a toast, or in an element `[data-frasm-autosave-status]` inside the form. The
 controller action is the same as for a save button (validate, save, `flash()`, `redirect()`): `AutosaveMiddleware`
 (global) turns the redirect of a request with `X-Frasm-Autosave: 1` into `{"ok": true|false, "message": …}` and takes the
 flash messages that request set (of any type), so they do not show up on the next page; flashes of earlier requests stay.

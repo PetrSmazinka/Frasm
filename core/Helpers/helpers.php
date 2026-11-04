@@ -101,7 +101,7 @@ if (!function_exists('frasm_head')) {
         $pwaEnabled = $pwaApp !== null;
 
         if ($features === null) {
-            $features = ['nav', 'live', 'stream', 'phone'];
+            $features = ['nav', 'toast', 'autosave', 'live', 'stream', 'phone'];
             if ($pushEnabled) {
                 $features[] = 'push';
             }
@@ -142,8 +142,13 @@ if (!function_exists('frasm_head')) {
                 . ($pushEnabled && in_array('push', $features, true) ? '' : '<meta name="frasm-sw-scope" content="' . $escape($serviceWorkerScope) . '">' . "\n");
         }
 
+        // Messages printed by frasm_flash() are shown as toasts by frasm-toast.js: hidden until then, a plain list without it
+        if (in_array('toast', $features, true)) {
+            $html .= '<style>.frasm-flash{display:none}</style><noscript><style>.frasm-flash{display:block}</style></noscript>' . "\n";
+        }
+
         foreach ($features as $feature) {
-            if (!in_array($feature, ['nav', 'live', 'stream', 'phone', 'push', 'pwa', 'passkey'], true)) {
+            if (!in_array($feature, ['nav', 'toast', 'autosave', 'live', 'stream', 'phone', 'push', 'pwa', 'passkey'], true)) {
                 throw new \Core\Exceptions\CoreException("Unknown frasm_head() feature '{$feature}'.");
             }
 
@@ -153,5 +158,30 @@ if (!function_exists('frasm_head')) {
         }
 
         return $html;
+    }
+}
+
+if (!function_exists('frasm_flash')) {
+    /**
+     * @brief Prints the flash messages of the request so that frasm-toast.js shows them as toasts.
+     *
+     * Place it once in the layout, e.g. `<?= frasm_flash($flash_messages ?? []) ?>` (BaseController::view() provides
+     * $flash_messages: type => text for the messages flashed by the previous request). Without the script, or without
+     * JavaScript, the messages stay on the page as a plain list.
+     *
+     * @param array<string, mixed> $messages Messages by type: success, error (also danger) or info; empty ones are skipped.
+     * @return string HTML, empty when there is nothing to show.
+     */
+    function frasm_flash(array $messages): string
+    {
+        $items = '';
+        foreach ($messages as $type => $text) {
+            if (is_string($text) && $text !== '') {
+                $items .= '<p data-type="' . htmlspecialchars((string)$type, ENT_QUOTES, 'UTF-8') . '">'
+                    . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . '</p>';
+            }
+        }
+
+        return $items === '' ? '' : '<div class="frasm-flash" role="status" data-frasm-flash>' . $items . '</div>' . "\n";
     }
 }

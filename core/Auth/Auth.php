@@ -388,12 +388,7 @@ class Auth
      */
     public static function safeReturnPath(mixed $value): ?string
     {
-        if (!is_string($value) || $value === '' || strlen($value) > 2000 || $value[0] !== '/'
-            || preg_match('#^/[/\\\\]|[\x00-\x1F\x7F]#', $value)) {
-            return null;
-        }
-
-        return $value;
+        return \Core\Http\LocalPath::from($value);
     }
 
     /**
