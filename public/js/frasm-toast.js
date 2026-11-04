@@ -29,6 +29,8 @@
     const MAX = 5;
 
     const style = document.createElement('style');
+    // frasm-nav.js removes the head elements a new page does not have; this one is added by the script, not by the page
+    style.setAttribute('data-frasm-permanent', '');
     style.textContent = '.frasm-toasts{position:fixed;right:16px;bottom:16px;z-index:2147483646;display:flex;flex-direction:column;'
         + 'gap:8px;width:min(380px,calc(100vw - 32px));pointer-events:none}'
         + '.frasm-toast{pointer-events:auto;cursor:pointer;padding:10px 14px;border-radius:var(--frasm-toast-radius,8px);'

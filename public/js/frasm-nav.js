@@ -580,6 +580,7 @@
 
     // --- Styles of the progress bar -------------------------------------------------------------
     const style = document.createElement('style');
+    style.setAttribute('data-frasm-permanent', '');
     style.textContent = '.frasm-progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:2147483647;'
         + 'pointer-events:none;background:var(--frasm-progress-color,#6366f1);transition:width 8s cubic-bezier(.1,.7,.1,1),opacity .3s}'
         + '.frasm-progress--running{width:85%}.frasm-progress--done{width:100%;opacity:0;transition:width .2s,opacity .3s .1s}';

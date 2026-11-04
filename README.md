@@ -309,6 +309,8 @@ the content down. Print them once in the layout: `<?= frasm_flash($flash_message
 provides `$flash_messages`). Without JavaScript they stay a plain list. From JavaScript: `Frasm.toast(text, {type:
 'success'|'error'|'info', key, duration})` (a toast with the same `key` is replaced in place). Colours and radius:
 `--frasm-toast-bg`, `--frasm-toast-color`, `--frasm-toast-radius`, `--frasm-toast-success|error|info`.
+A script that adds its own `<style>` or `<link>` to `<head>` marks it `data-frasm-permanent`, otherwise `frasm-nav.js`
+removes it with the next navigation (the head is merged with the one of the new page).
 
 **Redirects to a path from a request.** Never check it by hand: `$this->localPath($this->input('back'), '/fallback')` in a
 controller, or `Core\Http\LocalPath::from($value)` (null when it is not a path of this site: `//host`, `/\host`,
