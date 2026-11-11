@@ -307,7 +307,7 @@ those, so a page that does not navigate with `nav` still gets toasts and autosav
 **Toasts.** Flash messages are shown as toasts in the corner of the page (`frasm-toast.js`) instead of banners that push
 the content down. Print them once in the layout: `<?= frasm_flash($flash_messages ?? []) ?>` (`BaseController::view()`
 provides `$flash_messages`). Without JavaScript they stay a plain list. From JavaScript: `Frasm.toast(text, {type:
-'success'|'error'|'info', key, duration})` (a toast with the same `key` is replaced in place). Colours and radius:
+'success'|'error'|'info', key, duration})` (a toast with the same `key` is replaced in place; one without a key whose text and type are on the screen already is not shown twice). Colours and radius:
 `--frasm-toast-bg`, `--frasm-toast-color`, `--frasm-toast-radius`, `--frasm-toast-success|error|info`. The look is light or
 dark like the page: it follows the page's `color-scheme` (Bootstrap sets it with `data-bs-theme`; `data-theme` and
 `data-bs-theme="light|dark"` on `<html>` are honoured too). A dark-only app sets `color-scheme: dark` on `:root`, a

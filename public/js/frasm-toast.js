@@ -10,6 +10,7 @@
  *   Frasm.toast(text, { type: 'success'|'error'|'info', key?: string, duration?: ms (0 = until closed) })
  *     – a toast with the same key replaces the shown one in place (progress such as "Saving…" → "Saved").
  *   Frasm.toast.clear(key) – removes the toast with that key.
+ *   A toast without a key whose text and type are on the screen already is not shown twice (its timer starts again).
  * Markup API (printed by frasm_flash()): an element [data-frasm-flash] with children [data-type]; read once, on every
  * page (frasm:load, also after navigations of frasm-nav.js, and frasm:frame-load) and removed.
  *
@@ -95,6 +96,12 @@
         const parent = container();
 
         let element = options.key ? parent.querySelector(`.frasm-toast[data-key="${CSS.escape(options.key)}"]`) : null;
+        // The same message that is on the screen already is not shown again, it stays a little longer (the same flash reaching the
+        // page more than once, a repeated save)
+        if (!element && !options.key) {
+            element = Array.from(parent.children).find((shown) => !shown.dataset.key && shown.dataset.type === type && shown.textContent === message
+                && !shown.classList.contains('frasm-toast--leaving')) || null;
+        }
         if (!element) {
             element = document.createElement('div');
             element.className = 'frasm-toast';
