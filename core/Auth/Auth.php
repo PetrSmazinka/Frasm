@@ -269,7 +269,35 @@ class Auth
             return self::$statelessIdentity['roles'];
         }
 
-        return array_values((array)Session::get(self::SESSION_ROLES, []));
+        return self::effectiveRoles(array_values((array)Session::get(self::SESSION_ROLES, [])));
+    }
+
+    /**
+     * @brief The roles that count: a role of a group counts only together with the access role of the group.
+     *
+     * The groups are in `auth.role_requires` (prefix => access role, e.g. 'evidence' => 'evidence.user'); a role that starts with
+     * the prefix and a dot is dropped when the access role is missing, the access role itself is kept. Use it also for the roles of
+     * another user read from the database.
+     *
+     * @param array<string> $roles Roles as stored.
+     * @return list<string>
+     */
+    public static function effectiveRoles(array $roles): array
+    {
+        $requires = (array)Config::get('auth.role_requires', []);
+        if ($requires === []) {
+            return array_values($roles);
+        }
+
+        return array_values(array_filter($roles, static function (string $role) use ($requires, $roles): bool {
+            foreach ($requires as $prefix => $access) {
+                if ($role !== $access && str_starts_with($role, $prefix . '.') && !in_array($access, $roles, true)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**

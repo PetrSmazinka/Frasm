@@ -436,6 +436,12 @@ public function thumbnail(int $id): Response
 After `Session::release()` the session data can still be read (`Auth::check()`, roles, the CSRF token); writing
 (`Session::set()`, flash messages) throws an exception.
 
+Roles of a group that only count with the access role of the group: `auth.role_requires` maps a prefix to the role that gives
+access (`['evidence' => 'evidence.user']`). Then `evidence.admin`, `evidence.car` and any other `evidence.*` role are held only
+by a user who also has `evidence.user`; `Auth::roles()`, `hasRole()`, `hasAnyRole()` and `#[Authorize]` all see the roles that
+count, so an administrator of a module without access to it gets nowhere. `Auth::effectiveRoles($roles)` does the same for the
+roles of another user read from the database. A stateless identity (API token) is not changed.
+
 The CSRF token of a signed-in user is signed with `app.key` and bound to that user. A form opened before the session
 expired therefore still saves when the same request restores the sign-in from the "remember me" cookie
 (`Auth::sessionRestored()`): the token is accepted if it was signed for that user and is not older than

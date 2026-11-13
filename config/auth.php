@@ -36,6 +36,14 @@ return [
      */
     'refresh_identity' => true,
 
+    /*
+     * Roles that count only together with the access role of their group: group prefix => the role that gives access.
+     * ['evidence' => 'evidence.user'] makes every other role starting with "evidence." (evidence.admin, evidence.car…)
+     * work only for a user who also has evidence.user; without it the user holds none of them (Auth::roles(),
+     * hasRole(), #[Authorize] all see the roles that count). A stateless identity (API token) is not changed.
+     */
+    'role_requires' => [],
+
     'remember_cookie' => 'frasm_remember',
     'remember_lifetime_days' => 30,
 
