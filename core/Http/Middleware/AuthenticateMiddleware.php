@@ -41,6 +41,7 @@ class AuthenticateMiddleware implements MiddlewareInterface
         }
 
         Auth::clearStatelessUser();
+        Auth::resetRestored();
         $token = $request->bearerToken();
 
         if ($token !== null) {

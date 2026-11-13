@@ -40,6 +40,11 @@ class Auth
     protected static ?array $statelessIdentity = null;
 
     /**
+     * @var bool Whether this request restored the sign-in from the remember-me cookie (its session was lost).
+     */
+    protected static bool $sessionRestored = false;
+
+    /**
      * @brief Logs user in, assigns roles, and regenerates session ID.
      *
      * @param int|string $userId Primary key of the authenticated user.
@@ -193,6 +198,26 @@ class Auth
     public static function clearStatelessUser(): void
     {
         self::$statelessIdentity = null;
+    }
+
+    /**
+     * @brief Forgets that the sign-in was restored from the remember-me cookie (a new request begins).
+     *
+     * @return void
+     */
+    public static function resetRestored(): void
+    {
+        self::$sessionRestored = false;
+    }
+
+    /**
+     * @brief Tells whether this request restored the sign-in from the remember-me cookie (the session had expired).
+     *
+     * @return bool
+     */
+    public static function sessionRestored(): bool
+    {
+        return self::$sessionRestored;
     }
 
     /**
@@ -373,6 +398,7 @@ class Auth
         self::storeStamp($identity->id);
 
         self::issueRememberToken($identity->id);
+        self::$sessionRestored = true;
 
         return true;
     }

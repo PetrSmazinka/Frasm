@@ -436,6 +436,12 @@ public function thumbnail(int $id): Response
 After `Session::release()` the session data can still be read (`Auth::check()`, roles, the CSRF token); writing
 (`Session::set()`, flash messages) throws an exception.
 
+The CSRF token of a signed-in user is signed with `app.key` and bound to that user. A form opened before the session
+expired therefore still saves when the same request restores the sign-in from the "remember me" cookie
+(`Auth::sessionRestored()`): the token is accepted if it was signed for that user and is not older than
+`auth.remember_lifetime_days`, and the new session adopts it, so other open pages keep working. In every other request
+only the token of the session itself is valid. Without `app.key` the token stays plain random.
+
 ### Single sign-on between applications
 
 One Frasm application can own the accounts and others, on different domains, sign their users in with them
